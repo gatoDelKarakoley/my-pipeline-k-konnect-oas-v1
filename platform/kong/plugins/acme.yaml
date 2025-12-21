@@ -1,0 +1,23 @@
+_format_version: "3.0"
+
+services:
+- name: "acme-dummy-service"
+  url: "http://127.0.0.1:65535"
+  routes:
+  - name: "acme-dummy-route"
+    hosts:
+    - "api.kong-air.com"
+    protocols:
+    - "http"
+    paths:
+    - "/.well-known/acme-challenge"
+
+plugins:
+- name: acme
+  id: "85c9d396-5330-11ee-8c99-0242ac120002"
+  enabled: true
+  config:
+    account_email: "{vault://env/acme/account_email}"
+    renew_threshold_days: 30
+    domains:
+      - "api.kong-air.com"

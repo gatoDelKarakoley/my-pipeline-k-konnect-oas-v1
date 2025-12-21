@@ -1,0 +1,103 @@
+name: Build Customer API - Generate Kong Configs
+
+on:
+  workflow_dispatch:
+  # Run if someone pushes to the feature branch (during development)
+  push:
+    branches:
+      - feat/*
+      - main
+    paths:
+      - 'sales/customer/opeanapi.yaml'
+      - 'sales/customer/kong/**'
+      - '.github/workflows/build-customer.yaml'
+
+jobs:
+
+  oas-to-kong:
+    name: Convert OAS to Kong configurations
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup deck
+        uses: kong/setup-deck@v1
+        with:
+          deck-version: '1.40.3'
+          wrapper: false
+
+      - name: Generate Kong Declarative Configs from Spec
+        run: |
+          deck file openapi2kong --spec sales/customer/openapi.yaml \
+          --output-file sales/customer/kong/.generated/kong.yaml
+      
+      - name: Add plugin configuration
+        run: |
+          deck file merge sales/customer/kong/.generated/kong.yaml \
+          sales/customer/kong/plugins/*.yaml \
+          --output-file sales/customer/kong/.generated/kong.yaml
+
+      - name: Add consumer configuration
+        run: |
+          deck file merge sales/customer/kong/.generated/kong.yaml \
+          sales/customer/kong/consumers/*.yaml \
+          --output-file sales/customer/kong/.generated/kong.yaml
+
+      - name: Add tags
+        run: |
+          cat sales/customer/kong/.generated/kong.yaml | \
+          deck file add-tags sales customer \
+          --selector "$.services[*]" \
+          --selector "$.services[*].routes[*]"  \
+          --selector "$.consumers[*]" \
+          --output-file sales/customer/kong/.generated/kong.yaml
+
+      - name: Add environment Specific Patch
+        run: |
+          cat sales/customer/kong/.generated/kong.yaml | \
+          deck file patch sales/customer/kong/patches.yaml \
+          --output-file sales/customer/kong/.generated/kong.yaml
+
+      - name: Validate decK state file locally
+        run: |
+          deck file validate sales/customer/kong/.generated/kong.yaml
+
+      - name: Copy to artifact directory
+        run: |
+          cp sales/customer/kong/.generated/kong.yaml \
+             .github/artifacts/customer/customer-kong.yaml
+           
+      - name: Validate connectivity to Konnect
+        run: |
+          deck gateway ping \
+          --konnect-control-plane-name ${{vars.KONNECT_INTERNAL_CP}} \
+          --konnect-token ${{ secrets.KONNECT_PAT }} \
+          --konnect-addr ${{vars.KONNECT_ADDR}}
+
+      - name: deck diff
+        id: deck-diff
+        # deck diff results in a multi-line output, which requires some
+        #  bash gymnastics to handle and pass through to the next job.
+        #  See: https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#example-of-a-multiline-string
+        run: |
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "DIFF<<$EOF" >> $GITHUB_ENV
+          deck gateway diff --select-tag sales --select-tag customer \
+          .github/artifacts/customer/customer-kong.yaml \
+          --konnect-control-plane-name ${{vars.KONNECT_INTERNAL_CP}} \
+          --konnect-token ${{ secrets.KONNECT_PAT }} \
+          --konnect-addr ${{vars.KONNECT_ADDR}}>> $GITHUB_ENV
+          echo "$EOF" >> $GITHUB_ENV
+
+      #an artifact file will be committed only if it the Kong config differs from the previous one.
+      - name: Check status of any files to be committed
+        run: git status
+
+      - name: Create PR to stage changes for the Kong Gateway in production
+        uses: peter-evans/create-pull-request@v5
+        with:
+          title: "❗PRD❗: Staged changes for Kong Gateway PRD deployment"
+          labels: "PRD,kong"
+          body: "Merging this PR will result in the following changes deployed to PRD \n\n ```\n${{env.DIFF}}\n```"
+

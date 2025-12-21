@@ -1,0 +1,327 @@
+_format_version: "3.0"
+_plugin_configs:
+  default-jwt:
+    key_claim_name: iss
+    secret_is_base64: false
+consumer_groups:
+- name: gold
+  tags:
+  - platform-repo-managed
+- name: lifetime
+  tags:
+  - platform-repo-managed
+- name: platinum
+  tags:
+  - platform-repo-managed
+- name: silver
+  tags:
+  - platform-repo-managed
+consumers:
+- groups:
+  - name: platinum
+  tags:
+  - platform-repo-managed
+  username: dfreese
+- groups:
+  - name: gold
+  tags:
+  - platform-repo-managed
+  username: jdoe
+- groups:
+  - name: silver
+  tags:
+  - platform-repo-managed
+  username: jsmith
+plugins:
+- config:
+    account_email: '{vault://env/acme/account_email}'
+    domains:
+    - api.kong-air.com
+    renew_threshold_days: 30
+  enabled: true
+  id: 85c9d396-5330-11ee-8c99-0242ac120002
+  name: acme
+  tags:
+  - platform-repo-managed
+services:
+- host: flights.kongair
+  id: 0cef4d36-9c39-5ac2-9d9f-190d8ea8a252
+  name: flights-service
+  path: /
+  plugins: []
+  port: 8080
+  protocol: http
+  routes:
+  - id: 7b2dbd94-ec5b-5ae8-b6d5-4c8b16ce0b06
+    methods:
+    - GET
+    name: flights-service_get-flights
+    paths:
+    - ~/flights$
+    plugins: []
+    protocols:
+    - https
+    regex_priority: 200
+    strip_path: false
+    tags:
+    - flight-data
+    - platform-repo-managed
+  - id: 3210c3ed-9976-500d-ac03-07eaac972ad0
+    methods:
+    - GET
+    name: flights-service_get-flight-by-number
+    paths:
+    - ~/flights/(?<flightnumber>[^#?/]+)$
+    plugins: []
+    protocols:
+    - https
+    regex_priority: 100
+    strip_path: false
+    tags:
+    - flight-data
+    - platform-repo-managed
+  - id: 08020aa2-6106-59ec-903a-3459e7cbb629
+    methods:
+    - GET
+    name: flights-service_get-flight-details
+    paths:
+    - ~/flights/(?<flightnumber>[^#?/]+)/details$
+    plugins: []
+    protocols:
+    - https
+    regex_priority: 100
+    strip_path: false
+    tags:
+    - flight-data
+    - platform-repo-managed
+  - id: a5023323-0468-5a77-baf2-13578fec61b0
+    methods:
+    - GET
+    name: flights-service_health_get
+    paths:
+    - ~/health$
+    plugins: []
+    protocols:
+    - https
+    regex_priority: 200
+    strip_path: false
+    tags:
+    - flight-data
+    - platform-repo-managed
+  tags:
+  - flight-data
+  - platform-repo-managed
+- host: routes.kongair
+  id: 5bbc0ad8-3b7c-5dfe-a676-b28f30523a6f
+  name: routes-service
+  path: /
+  plugins: []
+  port: 8081
+  protocol: http
+  routes:
+  - id: 4da7a5e5-9e69-59af-a6c3-46a675c5bac6
+    methods:
+    - GET
+    name: routes-service_health_get
+    paths:
+    - ~/health$
+    plugins: []
+    protocols:
+    - https
+    regex_priority: 200
+    strip_path: false
+    tags:
+    - flight-data
+    - platform-repo-managed
+  - id: 89f28ad3-74db-5149-8fa5-f7fffbfda79c
+    methods:
+    - GET
+    name: routes-service_get-routes
+    paths:
+    - ~/routes$
+    plugins: []
+    protocols:
+    - https
+    regex_priority: 200
+    strip_path: false
+    tags:
+    - flight-data
+    - platform-repo-managed
+  - id: 831bf89a-08be-5dbd-bcd2-aa2348d784d3
+    methods:
+    - GET
+    name: routes-service_get-route
+    paths:
+    - ~/routes/(?<id>[^#?/]+)$
+    plugins: []
+    protocols:
+    - https
+    regex_priority: 100
+    strip_path: false
+    tags:
+    - flight-data
+    - platform-repo-managed
+  tags:
+  - flight-data
+  - platform-repo-managed
+- host: bookings.kongair
+  id: 22e1521b-9b91-5d2f-917b-4463066f1aed
+  name: bookings-service
+  path: /
+  plugins:
+  - _config: default-jwt
+    enabled: true
+    name: jwt
+    tags:
+    - platform-repo-managed
+  port: 8082
+  protocol: http
+  routes:
+  - id: 9bd2c85f-5d13-5910-838c-9fad63e8a54d
+    methods:
+    - GET
+    name: bookings-service_get-bookings
+    paths:
+    - ~/bookings$
+    plugins: []
+    protocols:
+    - https
+    regex_priority: 200
+    strip_path: false
+    tags:
+    - sales
+    - platform-repo-managed
+  - id: 4e2f555e-980c-5241-a640-9f0a67ab6693
+    methods:
+    - POST
+    name: bookings-service_post-booking
+    paths:
+    - ~/bookings$
+    plugins: []
+    protocols:
+    - https
+    regex_priority: 200
+    strip_path: false
+    tags:
+    - sales
+    - platform-repo-managed
+  - id: 1a619e4f-651d-550d-ae30-79f4bf45a080
+    methods:
+    - GET
+    name: bookings-service_health_get
+    paths:
+    - ~/health$
+    plugins: []
+    protocols:
+    - https
+    regex_priority: 200
+    strip_path: false
+    tags:
+    - sales
+    - platform-repo-managed
+  tags:
+  - sales
+  - platform-repo-managed
+- host: customer.kongair
+  id: 690e812e-2873-566a-b02f-d03e0bf8ff69
+  name: customer-information-service
+  path: /
+  plugins:
+  - _config: default-jwt
+    enabled: true
+    name: jwt
+    tags:
+    - platform-repo-managed
+  port: 8083
+  protocol: http
+  routes:
+  - id: 5984bb2d-328e-5785-a06a-f639c3a59d94
+    methods:
+    - GET
+    name: customer-information-service_get-cust-info
+    paths:
+    - ~/customer$
+    plugins: []
+    protocols:
+    - https
+    regex_priority: 200
+    strip_path: false
+    tags:
+    - sales
+    - platform-repo-managed
+  - id: 37cbdca9-74d9-51ec-ab8b-008d96f9bd75
+    methods:
+    - GET
+    name: customer-information-service_health_get
+    paths:
+    - ~/health$
+    plugins: []
+    protocols:
+    - https
+    regex_priority: 200
+    strip_path: false
+    tags:
+    - sales
+    - platform-repo-managed
+  tags:
+  - sales
+  - platform-repo-managed
+- host: experience.kongair
+  id: f1c41796-5c88-419b-a391-baa0c2f62f0d
+  name: experience-service
+  path: /
+  plugins:
+  - _config: default-jwt
+    enabled: true
+    name: jwt
+    tags:
+    - platform-repo-managed
+  - config:
+      cache_ttl: 15
+      strategy: memory
+    name: graphql-proxy-cache-advanced
+    tags:
+    - platform-repo-managed
+  - config:
+      limit:
+      - 500
+      sync_rate: -1
+      window_size:
+      - 120
+    name: graphql-rate-limiting-advanced
+    tags:
+    - platform-repo-managed
+  port: 8084
+  protocol: http
+  routes:
+  - id: 52cc7a8f-8914-46aa-990d-ad07197d7fc9
+    methods:
+    - POST
+    name: experience-service_query
+    paths:
+    - ~/query$
+    plugins: []
+    protocols:
+    - https
+    regex_priority: 200
+    strip_path: false
+    tags:
+    - experience
+    - platform-repo-managed
+  tags:
+  - platform-repo-managed
+- name: acme-dummy-service
+  routes:
+  - hosts:
+    - api.kong-air.com
+    name: acme-dummy-route
+    paths:
+    - /.well-known/acme-challenge
+    protocols:
+    - http
+    tags:
+    - platform-repo-managed
+  tags:
+  - platform-repo-managed
+  url: http://127.0.0.1:65535
+upstreams: []
