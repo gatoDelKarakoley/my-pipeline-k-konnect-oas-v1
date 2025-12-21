@@ -6,8 +6,8 @@ name: CI/CD Pipeline
 # 2. Linting: OpenAPI validation with Spectral.
 # 3. Single Source of Truth: OpenAPI -> Kong configuration.
 # 4. Dynamic Patching: environment + security profiles.
-# 5. Safety: non-strict sync to avoid destructive deletes.
-# 6. Idempotency: add/update only behavior.
+# 5. Scoped Sync: decK manages ONLY tagged objects (no destructive deletes).
+# 6. Idempotency: create + update only for managed resources.
 # -------------------------------------------------------------------------------------------------
 
 on:
@@ -68,6 +68,7 @@ jobs:
     env:
       ENVIRONMENT: ${{ inputs.environment || 'dev' }}
       SECURITY_PROFILE: ${{ inputs.security_profile || 'internal' }}
+      MANAGED_TAG: cicd
 
     outputs:
       artifact-name: kong-config
@@ -127,6 +128,13 @@ jobs:
             "$TEMPLATE" \
             --output-file .generated/kong.yaml
 
+      # 🔐 TAG EVERYTHING MANAGED BY THIS PIPELINE
+      - name: Tag managed resources
+        run: |
+          yq eval '
+            .services[].tags += ["'${MANAGED_TAG}'"]
+          ' -i .generated/kong.yaml
+
       - name: Validate generated Kong configuration
         run: |
           deck file validate .generated/kong.yaml
@@ -151,6 +159,7 @@ jobs:
       KONNECT_TOKEN: ${{ secrets.KONNECT_PAT }}
       KONNECT_ADDR: ${{ vars.CP_URL }}
       KONNECT_CP_NAME: ${{ vars.CP_NAME }}
+      MANAGED_TAG: cicd
 
     steps:
       - name: Checkout repository
@@ -174,10 +183,10 @@ jobs:
             --konnect-addr "$KONNECT_ADDR" \
             --konnect-control-plane-name "$KONNECT_CP_NAME"
 
-      - name: Deploy configuration (safe mode)
+      - name: Deploy configuration (scoped & safe)
         run: |
           deck gateway sync .generated/kong.yaml \
             --konnect-token "$KONNECT_TOKEN" \
             --konnect-addr "$KONNECT_ADDR" \
             --konnect-control-plane-name "$KONNECT_CP_NAME" \
-            --select-tags cicd
+            --select-tag "$MANAGED_TAG"
