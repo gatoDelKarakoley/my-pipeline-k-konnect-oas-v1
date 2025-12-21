@@ -1,5 +1,30 @@
-extends: ["spectral:oas"]
+extends:
+  - spectral:oas
+  - spectral:asyncapi
+
 rules:
-  operation-description: error
-  operation-summary: error
-  path-keys-no-trailing-slash: warning
+  operation-operationId:
+    description: "Each operation must have an operationId"
+    given: $.paths[*][*]
+    severity: error
+    then:
+      field: operationId
+      function: truthy
+
+  no-http-basic:
+    description: "HTTP Basic auth is forbidden"
+    given: $.components.securitySchemes[*]
+    severity: error
+    then:
+      field: scheme
+      function: pattern
+      functionOptions:
+        notMatch: basic
+
+  info-contact:
+    description: "API must have contact information"
+    given: $.info
+    severity: warn
+    then:
+      field: contact
+      function: truthy
