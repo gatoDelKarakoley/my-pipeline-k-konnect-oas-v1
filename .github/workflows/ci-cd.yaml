@@ -180,4 +180,4 @@ jobs:
             --konnect-token "$KONNECT_TOKEN" \
             --konnect-addr "$KONNECT_ADDR" \
             --konnect-control-plane-name "$KONNECT_CP_NAME" \
-            --non-strict
+            --select-tags cicd
