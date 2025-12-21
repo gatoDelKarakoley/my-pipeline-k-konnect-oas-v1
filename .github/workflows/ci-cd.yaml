@@ -1,0 +1,179 @@
+name: CI/CD Pipeline
+
+# -------------------------------------------------------------------------------------------------
+# Best Practices implemented:
+# 1. Least Privilege: 'permissions' block restricts the token scope.
+# 2. Linting: 'spectral' validates the OAS before any processing.
+# 3. Dynamic Configuration: Single source of truth (OAS) + Environment Injection.
+# 4. Connectivity Checks: 'deck gateway ping' ensures the runner can reach the Control Plane.
+# 5. Idempotency: 'deck gateway sync' ensures a consistent state.
+# -------------------------------------------------------------------------------------------------
+
+on:
+  # Trigger on push to the main branch
+  push:
+    branches: [ main ]
+  # Allow manual triggering with parameters
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target Environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options: [dev, uat, stg, prod]
+      security_profile:
+        description: 'Security Profile'
+        required: true
+        default: 'internal'
+        type: choice
+        options: [internal, mtls]
+      deploy:
+        description: 'Deploy to Konnect?'
+        required: true
+        type: boolean
+        default: true
+
+# Security: Restrict GITHUB_TOKEN permissions to read-only for contents
+permissions:
+  contents: read
+
+jobs:
+  # ===============================================================================================
+  # JOB 1: LINT
+  # Validate the OpenAPI Specification against style guides.
+  # ===============================================================================================
+  lint:
+    name: Lint OpenAPI Spec
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Spectral
+        uses: stoplightio/spectral-action@v0.8.10
+        with:
+          file_glob: 'spec/openapi.yaml'
+          ruleset: 'spectral.yaml' # Custom ruleset in root
+
+  # ===============================================================================================
+  # JOB 2: BUILD
+  # Convert OAS to Kong configuration and patch it with environment variables.
+  # ===============================================================================================
+  build:
+    name: Build Configuration
+    needs: lint
+    runs-on: ubuntu-latest
+    env:
+      # If push event, default to 'dev', otherwise use input
+      ENVIRONMENT: ${{ inputs.environment || 'dev' }} 
+    outputs:
+      artifact-name: kong-config
+    steps:
+    - uses: actions/checkout@v4
+
+    # Install decK to handle Kong configuration generation and validation
+    - name: Setup decK
+      uses: kong/setup-deck@v1
+      with:
+        deck-version: '1.40.3'
+
+    # Install yq for YAML/JSON manipulation
+    - name: Setup yq
+      run: |
+        sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq
+        sudo chmod +x /usr/bin/yq
+
+    # Convert OpenAPI Configuration to Kong Declaration
+    - name: Generate Base Config
+      run: |
+        mkdir -p .generated
+        deck file openapi2kong --spec spec/openapi.yaml --output-file .generated/kong.yaml
+
+    # Injecting Repo Name and Environment variables
+    # We use 'envsubst' for string replacement and 'yq' for structural merging.
+    - name: Inject Environment Variables
+      env:
+        REPO_NAME: ${{ github.event.repository.name }}
+      run: |
+        CONFIG_FILE="config/vars/${ENVIRONMENT}-envs.json"
+        
+        if [ ! -f "$CONFIG_FILE" ]; then
+          echo "::error::Config file $CONFIG_FILE not found!"
+          exit 1
+        fi
+        
+        echo "Building for environment: $ENVIRONMENT"
+
+        # 1. Substitute placeholders (like ${REPO_NAME}) in the JSON config
+        envsubst < "$CONFIG_FILE" > .generated/envs_resolved.json
+        
+        # 2. Merge the environment specific configuration into the Kong service definition
+        # Logic: Select the first service from Kong file (fileIndex 0) and merge fields from config (fileIndex 1)
+        # This overrides host, port, protocol, retries, etc.
+        yq eval-all 'select(fileIndex == 0).services[0] *= select(fileIndex == 1) | select(fileIndex == 0)' \
+          .generated/kong.yaml .generated/envs_resolved.json > .generated/kong_patched.yaml
+
+        mv .generated/kong_patched.yaml .generated/kong.yaml
+
+    # Merge Security Templates (Plugins)
+    - name: Apply Security Profile
+      run: |
+        TEMPLATE="config/templates/${{ inputs.security_profile || 'internal' }}.yaml"
+        echo "Applying security template: $TEMPLATE"
+        deck file merge .generated/kong.yaml "$TEMPLATE" --output-file .generated/kong.yaml
+
+    # Validate the final generated file before archiving
+    - name: Validate Deck File
+      run: deck file validate .generated/kong.yaml
+
+    # Archive the result for the deploy job
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: kong-config
+        path: .generated/kong.yaml
+
+  # ===============================================================================================
+  # JOB 3: DEPLOY
+  # Sync the configuration to the Kong Konnect Control Plane.
+  # ===============================================================================================
+  deploy:
+    name: Deploy to Konnect
+    needs: build
+    runs-on: ubuntu-latest
+    # Run if manual deploy=true OR if it's a push event
+    if: ${{ github.event_name == 'push' || inputs.deploy == true }}
+    env:
+      KONNECT_TOKEN: ${{ secrets.KONNECT_PAT }}
+      KONNECT_ADDR: ${{ vars.CP_URL }}
+      KONNECT_CP_NAME: ${{ vars.CP_NAME }}
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Download Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: kong-config
+        path: .generated
+
+    - name: Setup decK
+      uses: kong/setup-deck@v1
+      with:
+        deck-version: '1.40.3'
+
+    # Connectivity Check: Fail fast if we can't talk to the CP
+    - name: Check Konnect Connectivity
+      run: |
+        deck gateway ping \
+          --konnect-token "$KONNECT_TOKEN" \
+          --konnect-addr "$KONNECT_ADDR" \
+          --konnect-control-plane-name "$KONNECT_CP_NAME"
+
+    # Sync: Apply changes to the Gateway
+    - name: Deploy
+      run: |
+        deck gateway sync .generated/kong.yaml \
+          --konnect-token "$KONNECT_TOKEN" \
+          --konnect-addr "$KONNECT_ADDR" \
+          --konnect-control-plane-name "$KONNECT_CP_NAME"
