@@ -1,0 +1,5 @@
+extends: ["spectral:oas"]
+rules:
+  operation-description: error
+  operation-summary: error
+  path-keys-no-trailing-slash: warning

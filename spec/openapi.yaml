@@ -1,0 +1,60 @@
+openapi: 3.0.0
+info:
+  title: KongAir Flights API
+  description: API for retrieving flight information for KongAir.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8000
+    description: Local Kong Gateway Proxy
+paths:
+  /flights:
+    get:
+      summary: List all flights
+      operationId: getFlights
+      tags:
+        - flights
+      responses:
+        '200':
+          description: A list of flights
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Flight'
+  /health:
+    get:
+      summary: Health check
+      operationId: getHealth
+      tags:
+        - system
+      responses:
+        '200':
+          description: System is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "OK"
+components:
+  schemas:
+    Flight:
+      type: object
+      properties:
+        number:
+          type: string
+          example: "KA0284"
+        route_id:
+          type: string
+          example: "LHR-JFK"
+        scheduled_arrival:
+          type: string
+          format: date-time
+          example: "2024-04-05T08:25:00Z"
+        scheduled_departure:
+          type: string
+          format: date-time
+          example: "2024-04-05T16:05:00Z"

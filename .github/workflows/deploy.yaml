@@ -1,0 +1,36 @@
+name: Deploy API
+
+on:
+  workflow_run:
+    workflows: ["Build and Package API"]
+    types:
+      - completed
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    env:
+      KONNECT_TOKEN: ${{ secrets.KONNECT_PAT }}
+      KONNECT_CP_NAME: ${{ vars.KONNECT_CONTROL_PLANE }}
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Download Artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: kong-config
+        path: .generated
+
+    - name: Setup deck
+      uses: kong/setup-deck@v1
+      with:
+        deck-version: '1.40.3'
+
+    - name: Deploy to Konnect
+      run: |
+        deck gateway sync .generated/kong.yaml \
+          --konnect-token "$KONNECT_TOKEN" \
+          --konnect-control-plane-name "$KONNECT_CP_NAME"

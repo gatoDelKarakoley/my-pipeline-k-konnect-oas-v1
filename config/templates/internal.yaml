@@ -1,0 +1,12 @@
+_format_version: "3.0"
+_plugin_configs: {}
+# Template for Internal APIs (Key Auth + Rate Limiting)
+plugins:
+  - name: key-auth
+    config:
+      key_names:
+        - apikey
+  - name: rate-limiting
+    config:
+      minute: 100
+      policy: local
