@@ -2,12 +2,12 @@ name: CI/CD Pipeline
 
 # -------------------------------------------------------------------------------------------------
 # Best Practices implemented:
-# 1. Least Privilege: 'permissions' block restricts the token scope.
-# 2. Linting: 'spectral' validates the OAS before any processing.
-# 3. Single Source of Truth: OpenAPI as input for Kong configuration.
-# 4. Dynamic Configuration: Environment & security profiles injected via patching.
-# 5. Connectivity Checks: 'deck gateway ping' validates Control Plane reachability.
-# 6. Idempotency: 'deck gateway sync' ensures consistent state.
+# 1. Least Privilege: minimal GITHUB_TOKEN permissions.
+# 2. Linting: OpenAPI validation with Spectral.
+# 3. Single Source of Truth: OpenAPI -> Kong configuration.
+# 4. Dynamic Patching: environment + security profiles.
+# 5. Safety: non-strict sync to avoid destructive deletes.
+# 6. Idempotency: add/update only behavior.
 # -------------------------------------------------------------------------------------------------
 
 on:
@@ -18,21 +18,21 @@ on:
     inputs:
       environment:
         description: 'Target environment'
-        required: true
+        required: false
         default: dev
         type: choice
         options: [dev, uat, stg, prod]
 
       security_profile:
-        description: 'Security profile to apply'
-        required: true
+        description: 'Security profile'
+        required: false
         default: internal
         type: choice
         options: [internal, mtls]
 
       deploy:
         description: 'Deploy to Kong Konnect'
-        required: true
+        required: false
         type: boolean
         default: true
 
@@ -51,7 +51,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Lint OAS with Spectral
+      - name: Lint OpenAPI with Spectral
         uses: stoplightio/spectral-action@v0.8.10
         with:
           file_glob: spec/openapi.yaml
@@ -67,6 +67,7 @@ jobs:
 
     env:
       ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+      SECURITY_PROFILE: ${{ inputs.security_profile || 'internal' }}
 
     outputs:
       artifact-name: kong-config
@@ -114,7 +115,7 @@ jobs:
 
       - name: Apply security profile templates
         run: |
-          TEMPLATE="config/templates/${{ inputs.security_profile || 'internal' }}.yaml"
+          TEMPLATE="config/templates/${SECURITY_PROFILE}.yaml"
 
           if [ ! -f "$TEMPLATE" ]; then
             echo "::error::Missing security template: $TEMPLATE"
@@ -155,7 +156,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download Kong config artifact
+      - name: Download Kong configuration artifact
         uses: actions/download-artifact@v4
         with:
           name: kong-config
@@ -173,9 +174,10 @@ jobs:
             --konnect-addr "$KONNECT_ADDR" \
             --konnect-control-plane-name "$KONNECT_CP_NAME"
 
-      - name: Deploy configuration
+      - name: Deploy configuration (safe mode)
         run: |
           deck gateway sync .generated/kong.yaml \
             --konnect-token "$KONNECT_TOKEN" \
             --konnect-addr "$KONNECT_ADDR" \
-            --konnect-control-plane-name "$KONNECT_CP_NAME"
+            --konnect-control-plane-name "$KONNECT_CP_NAME" \
+            --non-strict
