@@ -162,7 +162,6 @@ jobs:
       - name: Run Postman Tests
         id: postman_tests
         run: |
-        run: |
           COLLECTION_FILE="tests/${GITHUB_REPOSITORY##*/}-integration-tests-${ENVIRONMENT}.json"
           if [ ! -f "$COLLECTION_FILE" ]; then
             echo "Specific collection $COLLECTION_FILE not found, using default tests/integration-tests.json"
