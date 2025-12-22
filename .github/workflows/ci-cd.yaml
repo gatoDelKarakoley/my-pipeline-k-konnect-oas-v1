@@ -220,10 +220,26 @@ jobs:
           name: kong-config
           path: .generated
 
-      - name: Setup decK
-        uses: kong/setup-deck@v1
-        with:
-          deck-version: '1.42.1'
+      - name: Setup decK (Manual)
+        run: |
+          echo "Installing decK manually for macOS..."
+          DECK_VERSION="1.42.1"
+          ARCH=$(uname -m)
+          if [ "$ARCH" == "arm64" ]; then
+            FILE="deck_${DECK_VERSION}_darwin_arm64.tar.gz"
+          else
+            FILE="deck_${DECK_VERSION}_darwin_amd64.tar.gz"
+          fi
+          
+          URL="https://github.com/Kong/deck/releases/download/v${DECK_VERSION}/${FILE}"
+          echo "Downloading $URL..."
+          
+          curl -sL "$URL" -o deck.tar.gz
+          tar -xf deck.tar.gz
+          chmod +x deck
+          echo "$PWD" >> $GITHUB_PATH
+          
+          ./deck version
 
       - name: Load Environment Configuration
         id: config
