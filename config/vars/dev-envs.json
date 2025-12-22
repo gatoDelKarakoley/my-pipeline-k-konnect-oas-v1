@@ -4,6 +4,7 @@
     "route_internal": "localhost:8001",
     "port": 443,
     "protocol": "https",
+    "tls_verify": false,
     "path": "/",
     "connect_timeout": 5000,
     "read_timeout": 10000,
