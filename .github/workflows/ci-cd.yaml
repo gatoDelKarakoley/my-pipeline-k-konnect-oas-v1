@@ -59,6 +59,9 @@ jobs:
           deck file openapi2kong \
             --spec spec/openapi.yaml \
             --output-file .generated/kong.yaml
+          
+          echo "🔎 DEBUG: Generated Config Content:"
+          cat .generated/kong.yaml
 
       # ... reste inchangé jusqu'à l'upload artifact ...
 
@@ -162,6 +165,8 @@ jobs:
       - name: Run Postman Tests
         id: postman_tests
         run: |
+          echo "⏳ Waiting 15s for Kong to stabilize..."
+          sleep 15
           COLLECTION_FILE="tests/${GITHUB_REPOSITORY##*/}-integration-tests-${ENVIRONMENT}.json"
           if [ ! -f "$COLLECTION_FILE" ]; then
             echo "Specific collection $COLLECTION_FILE not found, using default tests/integration-tests.json"
