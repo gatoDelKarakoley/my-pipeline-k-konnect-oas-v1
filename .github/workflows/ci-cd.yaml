@@ -78,6 +78,7 @@ jobs:
     if: ${{ github.event_name == 'push' || inputs.deploy == true }}
     env:
       KONNECT_TOKEN: ${{ secrets.KONNECT_PAT }}
+      KONNECT_ADDR: ${{ vars.CP_URL }}
       MANAGED_TAG: cicd
       ENVIRONMENT: ${{ inputs.environment || 'dev' }}
       CP_DEV: ${{ vars.CP_DEV }}
