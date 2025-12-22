@@ -18,16 +18,10 @@ on:
     inputs:
       environment:
         description: 'Target environment'
-        required: false
-        default: dev
+        required: true
+        default: 'dev'
         type: choice
         options: [dev, uat, stg, prod]
-
-      is_public:
-        description: 'Public API? (activates mTLS + OIDC)'
-        required: true
-        type: boolean
-        default: false
 
       deploy:
         description: 'Deploy to Kong Konnect'
@@ -66,8 +60,6 @@ jobs:
 
     env:
       ENVIRONMENT: ${{ inputs.environment || 'dev' }}
-      # Logic: If is_public is true -> mtls-oidc, else -> internal
-      SECURITY_PROFILE: ${{ inputs.is_public == true && 'mtls-oidc' || 'internal' }}
       MANAGED_TAG: cicd
 
     outputs:
@@ -95,7 +87,7 @@ jobs:
             --spec spec/openapi.yaml \
             --output-file .generated/kong.yaml
 
-      - name: Inject environment configuration
+      - name: SPLIT-HORIZON - Generate Internal & External Routes
         env:
           REPO_NAME: ${{ github.event.repository.name }}
         run: |
@@ -106,31 +98,66 @@ jobs:
             exit 1
           fi
 
+          echo "Applying Split-Horizon Architecture..."
+          
+          # Prepare config file for merging
           envsubst < "$CONFIG_FILE" > .generated/envs_resolved.json
 
+          # Use yq to transform the single route into two (Internal/External)
           yq eval-all '
-            select(fileIndex == 0).services[0] *= select(fileIndex == 1)
-            | select(fileIndex == 0)
-          ' .generated/kong.yaml .generated/envs_resolved.json > .generated/kong_patched.yaml
+            (select(fileIndex == 0).services[0] | .name) as $svcName |
+            (select(fileIndex == 1)) as $envConfig |
+            
+            select(fileIndex == 0) |
+            
+            # 1. Update Service (Upstream configuration from "host", "port", etc.)
+            .services[0] *= $envConfig |
+            .services[0].tags += ["cicd"] |
 
-          mv .generated/kong_patched.yaml .generated/kong.yaml
+            # 2. Capture the original route (Base)
+            (.services[0].routes[0]) as $baseRoute |
+            
+            # 3. Create External Route (Uses route_external)
+            ($baseRoute | 
+             .name = $svcName + "-external" | 
+             .hosts = [$envConfig.route_external] |
+             .tags = ["external", "cicd"]
+            ) as $extRoute |
 
-      - name: Apply security profile templates
+            # 4. Create Internal Route (Uses route_internal)
+            ($baseRoute | 
+             .name = $svcName + "-internal" | 
+             .hosts = [$envConfig.route_internal] |
+             .tags = ["internal", "cicd"]
+            ) as $intRoute |
+
+            # 5. Overwrite routes with the new pair
+            .services[0].routes = [$extRoute, $intRoute]
+
+          ' .generated/kong.yaml .generated/envs_resolved.json > .generated/kong_split.yaml
+
+          mv .generated/kong_split.yaml .generated/kong.yaml
+
+      - name: Apply Security Profiles (Internal vs External)
         run: |
-          TEMPLATE="config/templates/${SECURITY_PROFILE}.yaml"
+          # Apply External Plugins (mTLS + OIDC) to routes tagged "external"
+          TEMPLATE_EXT="config/templates/mtls-oidc.yaml"
+          # Apply Internal Plugins (Rate Limit + Key Auth) to routes tagged "internal"
+          TEMPLATE_INT="config/templates/internal.yaml"
 
-          if [ ! -f "$TEMPLATE" ]; then
-            echo "::error::Missing security template: $TEMPLATE"
-            exit 1
-          fi
-
-          # Use yq to inject plugins into the Service (Service-Scoped) instead of Global
+          echo "Injecting External Plugins..."
           yq eval-all '
-            select(fileIndex == 0).services[0].plugins += select(fileIndex == 1).plugins
+            select(fileIndex == 0).services[0].routes[] |= select(.tags[] == "external").plugins += (select(fileIndex == 1).plugins)
             | select(fileIndex == 0)
-          ' .generated/kong.yaml "$TEMPLATE" > .generated/kong_secured.yaml
+          ' .generated/kong.yaml "$TEMPLATE_EXT" > .generated/kong_ext.yaml
+          
+          echo "Injecting Internal Plugins..."
+          yq eval-all '
+            select(fileIndex == 0).services[0].routes[] |= select(.tags[] == "internal").plugins += (select(fileIndex == 1).plugins)
+            | select(fileIndex == 0)
+          ' .generated/kong_ext.yaml "$TEMPLATE_INT" > .generated/kong_final.yaml
 
-          mv .generated/kong_secured.yaml .generated/kong.yaml
+          mv .generated/kong_final.yaml .generated/kong.yaml
 
       # 🔐 TAG EVERYTHING MANAGED BY THIS PIPELINE
       - name: Tag managed resources
@@ -141,6 +168,7 @@ jobs:
 
       - name: Validate generated Kong configuration
         run: |
+          cat .generated/kong.yaml
           deck file validate .generated/kong.yaml
 
       - name: Upload Kong configuration artifact
@@ -212,8 +240,8 @@ jobs:
           fi
           
           if [ -f "$CONFIG_FILE" ]; then
-             # Extract Host for Proxy URL (used in tests later)
-             HOST=$(jq -r '.host' "$CONFIG_FILE")
+             # Extract Host for Proxy URL (Test against EXTERNAL route by default)
+             HOST=$(jq -r '.route_external' "$CONFIG_FILE")
              PROTOCOL=$(jq -r '.protocol // "https"' "$CONFIG_FILE")
              echo "PROXY_URL=${PROTOCOL}://${HOST}" >> $GITHUB_ENV
              
