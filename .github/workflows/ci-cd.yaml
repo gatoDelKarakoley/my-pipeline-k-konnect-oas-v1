@@ -119,6 +119,7 @@ jobs:
             
             # 3. Create External Route (Uses route_external)
             ($baseRoute | 
+             del(.id) |
              .name = $svcName + "-external" | 
              .hosts = [$envConfig.route_external] |
              .tags = ["external", "cicd"]
@@ -126,6 +127,7 @@ jobs:
 
             # 4. Create Internal Route (Uses route_internal)
             ($baseRoute | 
+             del(.id) |
              .name = $svcName + "-internal" | 
              .hosts = [$envConfig.route_internal] |
              .tags = ["internal", "cicd"]
