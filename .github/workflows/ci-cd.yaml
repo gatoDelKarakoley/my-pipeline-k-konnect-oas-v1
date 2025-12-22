@@ -23,12 +23,11 @@ on:
         type: choice
         options: [dev, uat, stg, prod]
 
-      security_profile:
-        description: 'Security profile'
-        required: false
-        default: internal
-        type: choice
-        options: [internal, mtls]
+      is_public:
+        description: 'Public API? (activates mTLS + OIDC)'
+        required: true
+        type: boolean
+        default: false
 
       deploy:
         description: 'Deploy to Kong Konnect'
@@ -67,11 +66,13 @@ jobs:
 
     env:
       ENVIRONMENT: ${{ inputs.environment || 'dev' }}
-      SECURITY_PROFILE: ${{ inputs.security_profile || 'internal' }}
+      # Logic: If is_public is true -> mtls-oidc, else -> internal
+      SECURITY_PROFILE: ${{ inputs.is_public == true && 'mtls-oidc' || 'internal' }}
       MANAGED_TAG: cicd
 
     outputs:
       artifact-name: kong-config
+
 
     steps:
       - name: Checkout repository
@@ -156,13 +157,24 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
 
+    # Blocking Gate: This maps to GitHub Environments.
+    # Go to Repo Settings -> Environments -> [dev/uat/stg/prod] -> Required Reviewers to enforce "Click to Approve".
+    environment: 
+      name: ${{ inputs.environment || 'dev' }}
+      url: ${{ env.KONNECT_ADDR }}
+
     if: ${{ github.event_name == 'push' || inputs.deploy == true }}
 
     env:
       KONNECT_TOKEN: ${{ secrets.KONNECT_PAT }}
       KONNECT_ADDR: ${{ vars.CP_URL }}
-      KONNECT_CP_NAME: ${{ vars.CP_NAME }}
       MANAGED_TAG: cicd
+      ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+      # Map GitHub Variables for CP Names
+      CP_DEV: ${{ vars.CP_DEV }}
+      CP_UAT: ${{ vars.CP_UAT }}
+      CP_STG: ${{ vars.CP_STG }}
+      CP_PRD: ${{ vars.CP_PRD }}
 
     steps:
       - name: Checkout repository
@@ -178,6 +190,38 @@ jobs:
         uses: kong/setup-deck@v1
         with:
           deck-version: '1.40.3'
+
+      - name: Load Environment Configuration
+        id: config
+        run: |
+          CONFIG_FILE="config/vars/${ENVIRONMENT}-envs.json"
+          
+          # Determine Control Plane Name from GitHub Variables
+          if [ "$ENVIRONMENT" == "prod" ]; then
+             echo "KONNECT_CP_NAME=$CP_PRD" >> $GITHUB_ENV
+             SELECTED_CP="$CP_PRD"
+          elif [ "$ENVIRONMENT" == "stg" ]; then
+             echo "KONNECT_CP_NAME=$CP_STG" >> $GITHUB_ENV
+             SELECTED_CP="$CP_STG"
+          elif [ "$ENVIRONMENT" == "uat" ]; then
+             echo "KONNECT_CP_NAME=$CP_UAT" >> $GITHUB_ENV
+             SELECTED_CP="$CP_UAT"
+          else
+             echo "KONNECT_CP_NAME=$CP_DEV" >> $GITHUB_ENV
+             SELECTED_CP="$CP_DEV"
+          fi
+          
+          if [ -f "$CONFIG_FILE" ]; then
+             # Extract Host for Proxy URL (used in tests later)
+             HOST=$(jq -r '.host' "$CONFIG_FILE")
+             PROTOCOL=$(jq -r '.protocol // "https"' "$CONFIG_FILE")
+             echo "PROXY_URL=${PROTOCOL}://${HOST}" >> $GITHUB_ENV
+             
+             echo "Targeting CP: $SELECTED_CP ($PROTOCOL://${HOST})"
+          else
+             echo "::error::Config file not found: $CONFIG_FILE"
+             exit 1
+          fi
 
       - name: Check connectivity to Konnect Control Plane
         run: |
@@ -212,24 +256,9 @@ jobs:
         run: |
           # Install newman (Postman CLI)
           sudo npm install -g newman
-
-          # Config file parsing logic
-          CONFIG_FILE="config/vars/${ENVIRONMENT}-envs.json"
-          if [ -f "$CONFIG_FILE" ]; then
-             HOST=$(jq -r '.host' "$CONFIG_FILE")
-             PROTOCOL=$(jq -r '.protocol // "https"' "$CONFIG_FILE")
-             PROXY_URL="${PROTOCOL}://${HOST}"
-             echo "Targeting Environment: $ENVIRONMENT ($PROXY_URL)"
-          else
-             echo "::warning::Config file not found, defaulting..."
-             PROXY_URL="https://api.kong-air.com"
-          fi
           
           # Construct the expected collection filename pattern per user request:
           # ${REPO_NAME}-integration-tests-${ENVIRONMENT}.json
-          # But as a fallback/template default, we use 'tests/integration-tests.json' if the specific one is missing.
-          
-          # We try to mimic the user requirement "nom du fichier-integration-tests-env"
           COLLECTION_FILE="tests/${GITHUB_REPOSITORY##*/}-integration-tests-${ENVIRONMENT}.json"
           
           if [ ! -f "$COLLECTION_FILE" ]; then
@@ -237,7 +266,7 @@ jobs:
             COLLECTION_FILE="tests/integration-tests.json"
           fi
 
-          echo "Running collection: $COLLECTION_FILE"
+          echo "Running collection: $COLLECTION_FILE against $PROXY_URL"
 
           newman run "$COLLECTION_FILE" --env-var baseUrl="$PROXY_URL" --reporters cli
 
