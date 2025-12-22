@@ -50,7 +50,7 @@ jobs:
 
       - name: Setup yq
         run: |
-          sudo wget -q https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq
+          sudo wget -q https://github.com/mikefarah/yq/releases/download/v4.40.5/yq_linux_amd64 -O /usr/bin/yq
           sudo chmod +x /usr/bin/yq
 
       - name: Generate Kong base configuration
