@@ -123,10 +123,13 @@ jobs:
             exit 1
           fi
 
-          deck file merge \
-            .generated/kong.yaml \
-            "$TEMPLATE" \
-            --output-file .generated/kong.yaml
+          # Use yq to inject plugins into the Service (Service-Scoped) instead of Global
+          yq eval-all '
+            select(fileIndex == 0).services[0].plugins += select(fileIndex == 1).plugins
+            | select(fileIndex == 0)
+          ' .generated/kong.yaml "$TEMPLATE" > .generated/kong_secured.yaml
+
+          mv .generated/kong_secured.yaml .generated/kong.yaml
 
       # 🔐 TAG EVERYTHING MANAGED BY THIS PIPELINE
       - name: Tag managed resources
