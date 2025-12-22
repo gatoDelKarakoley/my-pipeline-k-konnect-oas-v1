@@ -112,7 +112,6 @@ jobs:
             
             # 1. Update Service (Upstream configuration from "host", "port", etc.)
             .services[0] *= $envConfig |
-            .services[0].tags += ["cicd"] |
 
             # 2. Capture the original route (Base)
             (.services[0].routes[0]) as $baseRoute |
@@ -169,7 +168,8 @@ jobs:
       - name: Tag managed resources
         run: |
           yq eval '
-            .services[].tags += ["'${MANAGED_TAG}'"]
+            .services[].tags += ["'${MANAGED_TAG}'"] |
+            .services[].tags |= unique
           ' -i .generated/kong.yaml
 
       - name: Validate generated Kong configuration
