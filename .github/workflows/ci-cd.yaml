@@ -186,10 +186,73 @@ jobs:
             --konnect-addr "$KONNECT_ADDR" \
             --konnect-control-plane-name "$KONNECT_CP_NAME"
 
+      # BACKUP: Dump current state before making changes
+      - name: Backup current configuration
+        run: |
+          deck gateway dump \
+            --konnect-token "$KONNECT_TOKEN" \
+            --konnect-addr "$KONNECT_ADDR" \
+            --konnect-control-plane-name "$KONNECT_CP_NAME" \
+            --select-tag "$MANAGED_TAG" \
+            --output-file backup.yaml || echo "No existing config or backup failed"
+
+      # DEPLOY: Apply new configuration
       - name: Deploy configuration (scoped & safe)
+        id: deploy_step
         run: |
           deck gateway sync .generated/kong.yaml \
             --konnect-token "$KONNECT_TOKEN" \
             --konnect-addr "$KONNECT_ADDR" \
             --konnect-control-plane-name "$KONNECT_CP_NAME" \
             --select-tag "$MANAGED_TAG"
+
+      # TEST: Run Postman Integration Tests
+      - name: Run Postman Tests
+        id: postman_tests
+        run: |
+          # Install newman (Postman CLI)
+          sudo npm install -g newman
+
+          # Config file parsing logic
+          CONFIG_FILE="config/vars/${ENVIRONMENT}-envs.json"
+          if [ -f "$CONFIG_FILE" ]; then
+             HOST=$(jq -r '.host' "$CONFIG_FILE")
+             PROTOCOL=$(jq -r '.protocol // "https"' "$CONFIG_FILE")
+             PROXY_URL="${PROTOCOL}://${HOST}"
+             echo "Targeting Environment: $ENVIRONMENT ($PROXY_URL)"
+          else
+             echo "::warning::Config file not found, defaulting..."
+             PROXY_URL="https://api.kong-air.com"
+          fi
+          
+          # Construct the expected collection filename pattern per user request:
+          # ${REPO_NAME}-integration-tests-${ENVIRONMENT}.json
+          # But as a fallback/template default, we use 'tests/integration-tests.json' if the specific one is missing.
+          
+          # We try to mimic the user requirement "nom du fichier-integration-tests-env"
+          COLLECTION_FILE="tests/${GITHUB_REPOSITORY##*/}-integration-tests-${ENVIRONMENT}.json"
+          
+          if [ ! -f "$COLLECTION_FILE" ]; then
+            echo "Specific collection $COLLECTION_FILE not found, using default tests/integration-tests.json"
+            COLLECTION_FILE="tests/integration-tests.json"
+          fi
+
+          echo "Running collection: $COLLECTION_FILE"
+
+          newman run "$COLLECTION_FILE" --env-var baseUrl="$PROXY_URL" --reporters cli
+
+      # ROLLBACK: Revert if tests fail (but deploy succeeded)
+      - name: Rollback deployment
+        if: failure() && steps.deploy_step.outcome == 'success'
+        run: |
+          echo "🚨 Postman tests failed! Rolling back to previous state..."
+          if [ -f "backup.yaml" ] && [ -s "backup.yaml" ]; then
+             deck gateway sync backup.yaml \
+              --konnect-token "$KONNECT_TOKEN" \
+              --konnect-addr "$KONNECT_ADDR" \
+              --konnect-control-plane-name "$KONNECT_CP_NAME" \
+              --select-tag "$MANAGED_TAG"
+             echo "✅ Rollback completed."
+          else
+             echo "⚠️ No backup found (first deploy?), cannot rollback."
+          fi
