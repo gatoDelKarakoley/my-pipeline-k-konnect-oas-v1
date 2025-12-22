@@ -260,6 +260,12 @@ jobs:
              # Extract Host for Proxy URL (Test against EXTERNAL route by default)
              HOST=$(jq -r '.route_external' "$CONFIG_FILE")
              PROTOCOL=$(jq -r '.protocol // "https"' "$CONFIG_FILE")
+             
+             # Force HTTP for localhost testing (Local container ports usually http)
+             if [[ "$HOST" == *"localhost"* ]]; then
+               PROTOCOL="http"
+             fi
+
              echo "PROXY_URL=${PROTOCOL}://${HOST}" >> $GITHUB_ENV
              
              echo "Targeting CP: $SELECTED_CP ($PROTOCOL://${HOST})"
