@@ -162,13 +162,15 @@ jobs:
       - name: Run Postman Tests
         id: postman_tests
         run: |
-          sudo npm install -g newman
+        run: |
           COLLECTION_FILE="tests/${GITHUB_REPOSITORY##*/}-integration-tests-${ENVIRONMENT}.json"
           if [ ! -f "$COLLECTION_FILE" ]; then
             echo "Specific collection $COLLECTION_FILE not found, using default tests/integration-tests.json"
             COLLECTION_FILE="tests/integration-tests.json"
           fi
-          newman run "$COLLECTION_FILE" \
+          
+          # Use npx to run newman without global install/sudo
+          npx newman run "$COLLECTION_FILE" \
             --env-var baseUrl="$PROXY_URL" \
             --reporters cli \
             --timeout-request 10000 \
