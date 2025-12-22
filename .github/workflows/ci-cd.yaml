@@ -77,10 +77,8 @@ jobs:
           echo "Applying Split-Horizon Architecture..."
           
           # Prepare config file for merging
-          # Assuming envsubst is available or unnecessary if vars don't need expansion yet.
-          # If envsubst is needed, ensure gettext is installed or present. 
-          # Ubuntu runner usually has it.
-          cp "$CONFIG_FILE" .generated/envs_resolved.json
+          # Substitute environment variables (like ${REPO_NAME}) in the config file
+          envsubst < "$CONFIG_FILE" > .generated/envs_resolved.json
 
           # Use yq to transform the single route into two (Internal/External)
           yq eval-all '
