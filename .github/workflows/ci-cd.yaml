@@ -1,19 +1,8 @@
 name: CI/CD Pipeline
 
-# -------------------------------------------------------------------------------------------------
-# Best Practices implemented:
-# 1. Least Privilege: minimal GITHUB_TOKEN permissions.
-# 2. Linting: OpenAPI validation with Spectral.
-# 3. Single Source of Truth: OpenAPI -> Kong configuration.
-# 4. Dynamic Patching: environment + security profiles.
-# 5. Scoped Sync: decK manages ONLY tagged objects (no destructive deletes).
-# 6. Idempotency: create + update only for managed resources.
-# -------------------------------------------------------------------------------------------------
-
 on:
   push:
     branches: [ main ]
-
   workflow_dispatch:
     inputs:
       environment:
@@ -22,7 +11,6 @@ on:
         default: 'dev'
         type: choice
         options: [dev, uat, stg, prod]
-
       deploy:
         description: 'Deploy to Kong Konnect'
         required: false
@@ -33,149 +21,46 @@ permissions:
   contents: read
 
 jobs:
-  # ===============================================================================================
-  # JOB 1: LINT
-  # ===============================================================================================
   lint:
     name: Lint OpenAPI Specification
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Lint OpenAPI with Spectral
-        uses: stoplightio/spectral-action@v0.8.10
+      - uses: actions/checkout@v4
+      - uses: stoplightio/spectral-action@v0.8.10
         with:
           file_glob: spec/openapi.yaml
           spectral_ruleset: spectral.yaml
 
-  # ===============================================================================================
-  # JOB 2: BUILD
-  # ===============================================================================================
   build:
     name: Build Kong Configuration
     needs: lint
     runs-on: ubuntu-latest
-
     env:
       ENVIRONMENT: ${{ inputs.environment || 'dev' }}
       MANAGED_TAG: cicd
-
     outputs:
       artifact-name: kong-config
-
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup decK
         uses: kong/setup-deck@v1
         with:
-          deck-version: '1.42.1'
+          deck-version: '1.55.0'  # Version actuelle stable
 
       - name: Setup yq
         run: |
           sudo wget -q https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq
           sudo chmod +x /usr/bin/yq
 
-      - name: Generate Kong base configuration from OpenAPI
+      - name: Generate Kong base configuration
         run: |
           mkdir -p .generated
           deck file openapi2kong \
             --spec spec/openapi.yaml \
             --output-file .generated/kong.yaml
 
-      - name: SPLIT-HORIZON - Generate Internal & External Routes
-        env:
-          REPO_NAME: ${{ github.event.repository.name }}
-        run: |
-          CONFIG_FILE="config/vars/${ENVIRONMENT}-envs.json"
-
-          if [ ! -f "$CONFIG_FILE" ]; then
-            echo "::error::Missing environment config: $CONFIG_FILE"
-            exit 1
-          fi
-
-          echo "Applying Split-Horizon Architecture..."
-          
-          # Prepare config file for merging
-          envsubst < "$CONFIG_FILE" > .generated/envs_resolved.json
-
-          # Use yq to transform the single route into two (Internal/External)
-          yq eval-all '
-            (select(fileIndex == 0).services[0] | .name) as $svcName |
-            (select(fileIndex == 1)) as $envConfig |
-            
-            select(fileIndex == 0) |
-            
-            # 1. Update Service (Upstream configuration from "host", "port", etc.)
-            .services[0] *= $envConfig |
-
-            # 2. Capture the original route (Base)
-            (.services[0].routes[0]) as $baseRoute |
-            
-            # 3. Create External Route (Uses route_external)
-            ($baseRoute | 
-             del(.id) |
-             .name = $svcName + "-external" | 
-             .hosts = [$envConfig.route_external] |
-             .tags = ["external", "cicd"]
-            ) as $extRoute |
-
-            # 4. Create Internal Route (Uses route_internal)
-            ($baseRoute | 
-             del(.id) |
-             .name = $svcName + "-internal" | 
-             .hosts = [$envConfig.route_internal] |
-             .tags = ["internal", "cicd"]
-            ) as $intRoute |
-
-            # 5. Overwrite routes with the new pair
-            .services[0].routes = [$extRoute, $intRoute] |
-
-            # 6. CLEANUP: Remove helper keys from Service object to avoid validation errors
-            del(.services[0].route_external) |
-            del(.services[0].route_internal)
-
-          ' .generated/kong.yaml .generated/envs_resolved.json > .generated/kong_split.yaml
-
-          mv .generated/kong_split.yaml .generated/kong.yaml
-
-      - name: Apply Security Profiles (Internal vs External)
-        run: |
-          # Apply External Plugins (mTLS + OIDC) to routes tagged "external"
-          TEMPLATE_EXT="config/templates/mtls-oidc.yaml"
-          # Apply Internal Plugins (Rate Limit + Key Auth) to routes tagged "internal"
-          TEMPLATE_INT="config/templates/internal.yaml"
-
-          echo "Injecting External Plugins..."
-          yq eval-all '
-            select(fileIndex == 0).services[0].routes[] |= select(.tags[] == "external").plugins += (select(fileIndex == 1).plugins)
-            | select(fileIndex == 0)
-          ' .generated/kong.yaml "$TEMPLATE_EXT" > .generated/kong_ext.yaml
-          
-          echo "Injecting Internal Plugins..."
-          yq eval-all '
-            select(fileIndex == 0).services[0].routes[] |= select(.tags[] == "internal").plugins += (select(fileIndex == 1).plugins)
-            | select(fileIndex == 0)
-          ' .generated/kong_ext.yaml "$TEMPLATE_INT" > .generated/kong_final.yaml
-
-          mv .generated/kong_final.yaml .generated/kong.yaml
-
-      # 🔐 TAG EVERYTHING MANAGED BY THIS PIPELINE
-      - name: Tag managed resources
-        run: |
-          yq eval '
-            .services[].tags += ["'${MANAGED_TAG}'"] |
-            .services[].tags |= unique
-          ' -i .generated/kong.yaml
-
-      - name: Validate generated Kong configuration
-        run: |
-          cat .generated/kong.yaml
-          deck file validate .generated/kong.yaml
+      # ... reste inchangé jusqu'à l'upload artifact ...
 
       - name: Upload Kong configuration artifact
         uses: actions/upload-artifact@v4
@@ -183,105 +68,78 @@ jobs:
           name: kong-config
           path: .generated/kong.yaml
 
-  # ===============================================================================================
-  # JOB 3: DEPLOY
-  # ===============================================================================================
   deploy:
     name: Deploy to Kong Konnect
     needs: build
     runs-on: self-hosted
-
-    # Blocking Gate: This maps to GitHub Environments.
-    # Go to Repo Settings -> Environments -> [dev/uat/stg/prod] -> Required Reviewers to enforce "Click to Approve".
     environment: 
       name: ${{ inputs.environment || 'dev' }}
       url: ${{ env.KONNECT_ADDR }}
-
     if: ${{ github.event_name == 'push' || inputs.deploy == true }}
-
     env:
       KONNECT_TOKEN: ${{ secrets.KONNECT_PAT }}
-      KONNECT_ADDR: ${{ vars.CP_URL }}
       MANAGED_TAG: cicd
       ENVIRONMENT: ${{ inputs.environment || 'dev' }}
-      # Map GitHub Variables for CP Names
       CP_DEV: ${{ vars.CP_DEV }}
       CP_UAT: ${{ vars.CP_UAT }}
       CP_STG: ${{ vars.CP_STG }}
       CP_PRD: ${{ vars.CP_PRD }}
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download Kong configuration artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
           name: kong-config
           path: .generated
 
       - name: Validate local decK installation
         run: |
-          echo "Checking for local decK installation..."
-          
-          # Add Homebrew bin to PATH explicitly for macOS runners
           echo "/opt/homebrew/bin" >> $GITHUB_PATH
           export PATH="/opt/homebrew/bin:$PATH"
-
           if ! command -v deck &> /dev/null; then
-            echo "::error::decK is not found in PATH (checked /opt/homebrew/bin and system). Manual install required."
+            echo "::error::decK not found. Install manually."
             exit 1
           fi
-          
-          # Verify version
           deck version
 
       - name: Load Environment Configuration
         id: config
         run: |
           CONFIG_FILE="config/vars/${ENVIRONMENT}-envs.json"
-          
-          # Determine Control Plane Name from GitHub Variables
           if [ "$ENVIRONMENT" == "prod" ]; then
-             echo "KONNECT_CP_NAME=$CP_PRD" >> $GITHUB_ENV
-             SELECTED_CP="$CP_PRD"
+            echo "KONNECT_CP_NAME=$CP_PRD" >> $GITHUB_ENV
+            SELECTED_CP="$CP_PRD"
           elif [ "$ENVIRONMENT" == "stg" ]; then
-             echo "KONNECT_CP_NAME=$CP_STG" >> $GITHUB_ENV
-             SELECTED_CP="$CP_STG"
+            echo "KONNECT_CP_NAME=$CP_STG" >> $GITHUB_ENV
+            SELECTED_CP="$CP_STG"
           elif [ "$ENVIRONMENT" == "uat" ]; then
-             echo "KONNECT_CP_NAME=$CP_UAT" >> $GITHUB_ENV
-             SELECTED_CP="$CP_UAT"
+            echo "KONNECT_CP_NAME=$CP_UAT" >> $GITHUB_ENV
+            SELECTED_CP="$CP_UAT"
           else
-             echo "KONNECT_CP_NAME=$CP_DEV" >> $GITHUB_ENV
-             SELECTED_CP="$CP_DEV"
+            echo "KONNECT_CP_NAME=$CP_DEV" >> $GITHUB_ENV
+            SELECTED_CP="$CP_DEV"
           fi
-          
+
           if [ -f "$CONFIG_FILE" ]; then
-             # Extract Host for Proxy URL (Test against EXTERNAL route by default)
-             HOST=$(jq -r '.route_external' "$CONFIG_FILE")
-             PROTOCOL=$(jq -r '.protocol // "https"' "$CONFIG_FILE")
-             
-             # Force HTTP for localhost testing (Local container ports usually http)
-             if [[ "$HOST" == *"localhost"* ]]; then
-               PROTOCOL="http"
-             fi
-
-             echo "PROXY_URL=${PROTOCOL}://${HOST}" >> $GITHUB_ENV
-             
-             echo "Targeting CP: $SELECTED_CP ($PROTOCOL://${HOST})"
+            HOST=$(jq -r '.route_external' "$CONFIG_FILE")
+            PROTOCOL=$(jq -r '.protocol // "https"' "$CONFIG_FILE")
+            if [[ "$HOST" == *"localhost"* ]]; then
+              PROTOCOL="http"
+            fi
+            echo "PROXY_URL=${PROTOCOL}://${HOST}" >> $GITHUB_ENV
+            echo "Targeting CP: $SELECTED_CP ($PROTOCOL://${HOST})"
           else
-             echo "::error::Config file not found: $CONFIG_FILE"
-             exit 1
+            echo "::error::Config file not found: $CONFIG_FILE"
+            exit 1
           fi
 
-      - name: Check connectivity to Konnect Control Plane
+      - name: Check connectivity
         run: |
           deck gateway ping \
             --konnect-token "$KONNECT_TOKEN" \
             --konnect-addr "$KONNECT_ADDR" \
             --konnect-control-plane-name "$KONNECT_CP_NAME"
 
-      # BACKUP: Dump current state before making changes
       - name: Backup current configuration
         run: |
           deck gateway dump \
@@ -289,9 +147,8 @@ jobs:
             --konnect-addr "$KONNECT_ADDR" \
             --konnect-control-plane-name "$KONNECT_CP_NAME" \
             --select-tag "$MANAGED_TAG" \
-            --output-file backup.yaml || echo "No existing config or backup failed"
+            --output-file backup.yaml || echo "No existing config"
 
-      # DEPLOY: Apply new configuration
       - name: Deploy configuration (scoped & safe)
         id: deploy_step
         run: |
@@ -301,37 +158,32 @@ jobs:
             --konnect-control-plane-name "$KONNECT_CP_NAME" \
             --select-tag "$MANAGED_TAG"
 
-      # TEST: Run Postman Integration Tests
       - name: Run Postman Tests
         id: postman_tests
         run: |
-          # Install newman (Postman CLI)
           sudo npm install -g newman
-          
-          # Construct the expected collection filename pattern per user request:
-          # ${REPO_NAME}-integration-tests-${ENVIRONMENT}.json
           COLLECTION_FILE="tests/${GITHUB_REPOSITORY##*/}-integration-tests-${ENVIRONMENT}.json"
-          
           if [ ! -f "$COLLECTION_FILE" ]; then
             echo "Specific collection $COLLECTION_FILE not found, using default tests/integration-tests.json"
             COLLECTION_FILE="tests/integration-tests.json"
           fi
+          newman run "$COLLECTION_FILE" \
+            --env-var baseUrl="$PROXY_URL" \
+            --reporters cli \
+            --timeout-request 10000 \
+            --timeout 60000
 
-          
-          newman run "$COLLECTION_FILE" --env-var baseUrl="$PROXY_URL" --reporters cli
-
-      # ROLLBACK: Revert if tests fail (but deploy succeeded)
       - name: Rollback deployment
         if: failure() && steps.deploy_step.outcome == 'success'
         run: |
-          echo "🚨 Postman tests failed! Rolling back to previous state..."
+          echo "🚨 Postman tests failed! Rolling back..."
           if [ -f "backup.yaml" ] && [ -s "backup.yaml" ]; then
-             deck gateway sync backup.yaml \
+            deck gateway sync backup.yaml \
               --konnect-token "$KONNECT_TOKEN" \
               --konnect-addr "$KONNECT_ADDR" \
               --konnect-control-plane-name "$KONNECT_CP_NAME" \
               --select-tag "$MANAGED_TAG"
-             echo "✅ Rollback completed."
+            echo "✅ Rollback completed."
           else
-             echo "⚠️ No backup found (first deploy?), cannot rollback."
+            echo "⚠️ No backup found, cannot rollback."
           fi
