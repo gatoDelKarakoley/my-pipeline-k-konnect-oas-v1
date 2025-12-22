@@ -1,5 +1,5 @@
 {
-    "host": "api.kong-air.com",
+    "host": "httpbin.org",
     "route_external": "localhost:8000",
     "route_internal": "localhost:8001",
     "port": 443,
