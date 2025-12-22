@@ -132,7 +132,11 @@ jobs:
             ) as $intRoute |
 
             # 5. Overwrite routes with the new pair
-            .services[0].routes = [$extRoute, $intRoute]
+            .services[0].routes = [$extRoute, $intRoute] |
+
+            # 6. CLEANUP: Remove helper keys from Service object to avoid validation errors
+            del(.services[0].route_external) |
+            del(.services[0].route_internal)
 
           ' .generated/kong.yaml .generated/envs_resolved.json > .generated/kong_split.yaml
 
