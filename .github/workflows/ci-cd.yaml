@@ -89,13 +89,10 @@ jobs:
             
             select(fileIndex == 0) |
             
-            # 1. Update Service (Upstream configuration from "host", "port", etc.)
             .services[0] *= $envConfig |
 
-            # 2. Capture the original route (Base)
             (.services[0].routes[0]) as $baseRoute |
             
-            # 3. Create External Route (Uses route_external)
             ($baseRoute | 
              del(.id) |
              .name = $svcName + "-external" | 
@@ -103,7 +100,6 @@ jobs:
              .tags = ["external", "cicd"]
             ) as $extRoute |
 
-            # 4. Create Internal Route (Uses route_internal)
             ($baseRoute | 
              del(.id) |
              .name = $svcName + "-internal" | 
@@ -111,10 +107,8 @@ jobs:
              .tags = ["internal", "cicd"]
             ) as $intRoute |
 
-            # 5. Overwrite routes with the new pair
             .services[0].routes = [$extRoute, $intRoute] |
 
-            # 6. CLEANUP: Remove helper keys from Service object to avoid validation errors
             del(.services[0].route_external) |
             del(.services[0].route_internal) |
             del(.services[0].enabled)
