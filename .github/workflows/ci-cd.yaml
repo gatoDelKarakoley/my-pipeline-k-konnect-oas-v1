@@ -73,7 +73,7 @@ jobs:
       - name: Setup decK
         uses: kong/setup-deck@v1
         with:
-          deck-version: '1.40.3'
+          deck-version: '1.42.1'
 
       - name: Setup yq
         run: |
@@ -223,7 +223,7 @@ jobs:
       - name: Setup decK
         uses: kong/setup-deck@v1
         with:
-          deck-version: '1.40.3'
+          deck-version: '1.42.1'
 
       - name: Load Environment Configuration
         id: config
