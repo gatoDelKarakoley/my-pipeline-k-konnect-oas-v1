@@ -124,14 +124,16 @@ jobs:
 
           echo "Injecting External Plugins..."
           yq eval-all '
-            select(fileIndex == 0).services[0].routes[] |= select(.tags[] == "external").plugins += (select(fileIndex == 1).plugins)
-            | select(fileIndex == 0)
+            (select(fileIndex == 1).plugins) as $plugins |
+            select(fileIndex == 0) |
+            .services[0].routes[] |= select(.tags[] == "external").plugins += $plugins
           ' .generated/kong.yaml "$TEMPLATE_EXT" > .generated/kong_ext.yaml
           
           echo "Injecting Internal Plugins..."
           yq eval-all '
-            select(fileIndex == 0).services[0].routes[] |= select(.tags[] == "internal").plugins += (select(fileIndex == 1).plugins)
-            | select(fileIndex == 0)
+            (select(fileIndex == 1).plugins) as $plugins |
+            select(fileIndex == 0) |
+            .services[0].routes[] |= select(.tags[] == "internal").plugins += $plugins
           ' .generated/kong_ext.yaml "$TEMPLATE_INT" > .generated/kong_final.yaml
 
           mv .generated/kong_final.yaml .generated/kong.yaml
