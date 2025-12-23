@@ -89,9 +89,10 @@ jobs:
 
             .services[0].routes |= map(
               . as $r |
+              (.name) as $rname |
               [
-                ($r | del(.id) | .name = .name + "-external" | .hosts = [$env.route_external] | .tags = ["external","cicd"]),
-                ($r | del(.id) | .name = .name + "-internal" | .hosts = [$env.route_internal] | .tags = ["internal","cicd"])
+                ($r | del(.id) | .name = $rname + "-external" | .hosts = [$env.route_external] | .tags = ["external","cicd"]),
+                ($r | del(.id) | .name = $rname + "-internal" | .hosts = [$env.route_internal] | .tags = ["internal","cicd"])
               ]
             ) |
             .services[0].routes |= flatten |
