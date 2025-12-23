@@ -1,0 +1,281 @@
+{
+	"info": {
+		"_postman_id": "kongair-api-tests-2025",
+		"name": "KongAir API - Split Horizon Tests",
+		"description": "Collection pour tester les routes externes (mTLS + OIDC) et internes (Key Auth) de l'API KongAir",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "External Routes (mTLS + OIDC)",
+			"item": [
+				{
+					"name": "Health Check - External",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"pm.test(\"Response time is less than 1000ms\", function () {",
+									"    pm.expect(pm.response.responseTime).to.be.below(1000);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    pm.test(\"Response has status field\", function () {",
+									"        var jsonData = pm.response.json();",
+									"        pm.expect(jsonData).to.have.property('status');",
+									"    });",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{oidc_token}}",
+								"type": "text",
+								"description": "Token OIDC pour l'authentification externe"
+							}
+						],
+						"url": {
+							"raw": "http://{{external_host}}/health",
+							"protocol": "http",
+							"host": [
+								"{{external_host}}"
+							],
+							"path": [
+								"health"
+							]
+						},
+						"description": "Test du endpoint health check via la route externe (mTLS + OIDC requis)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Flights - External",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"pm.test(\"Response time is less than 2000ms\", function () {",
+									"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    pm.test(\"Response is an array\", function () {",
+									"        var jsonData = pm.response.json();",
+									"        pm.expect(jsonData).to.be.an('array');",
+									"    });",
+									"    ",
+									"    if (pm.response.json().length > 0) {",
+									"        pm.test(\"Flight object has required fields\", function () {",
+									"            var flight = pm.response.json()[0];",
+									"            pm.expect(flight).to.have.property('number');",
+									"            pm.expect(flight).to.have.property('route_id');",
+									"        });",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{oidc_token}}",
+								"type": "text",
+								"description": "Token OIDC pour l'authentification externe"
+							}
+						],
+						"url": {
+							"raw": "http://{{external_host}}/flights",
+							"protocol": "http",
+							"host": [
+								"{{external_host}}"
+							],
+							"path": [
+								"flights"
+							]
+						},
+						"description": "Test du endpoint flights via la route externe (mTLS + OIDC requis)"
+					},
+					"response": []
+				}
+			],
+			"description": "Routes externes protégées par mTLS + OIDC.\n\n**Configuration requise:**\n1. Certificat client mTLS (client.crt et client.key)\n2. Token OIDC valide dans l'en-tête Authorization\n\n**Note:** Pour tester ces routes, vous devez configurer:\n- Les certificats dans les paramètres SSL de Postman\n- Le token OIDC dans l'en-tête Authorization: `Bearer <token>`"
+		},
+		{
+			"name": "Internal Routes (Key Auth)",
+			"item": [
+				{
+					"name": "Health Check - Internal",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"pm.test(\"Response time is less than 1000ms\", function () {",
+									"    pm.expect(pm.response.responseTime).to.be.below(1000);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    pm.test(\"Response has status field\", function () {",
+									"        var jsonData = pm.response.json();",
+									"        pm.expect(jsonData).to.have.property('status');",
+									"    });",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "apikey",
+								"value": "{{internal_api_key}}",
+								"type": "text",
+								"description": "API Key pour l'authentification interne"
+							}
+						],
+						"url": {
+							"raw": "http://{{internal_host}}/health",
+							"protocol": "http",
+							"host": [
+								"{{internal_host}}"
+							],
+							"path": [
+								"health"
+							]
+						},
+						"description": "Test du endpoint health check via la route interne (Key Auth requis)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Flights - Internal",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"pm.test(\"Response time is less than 2000ms\", function () {",
+									"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    pm.test(\"Response is an array\", function () {",
+									"        var jsonData = pm.response.json();",
+									"        pm.expect(jsonData).to.be.an('array');",
+									"    });",
+									"    ",
+									"    if (pm.response.json().length > 0) {",
+									"        pm.test(\"Flight object has required fields\", function () {",
+									"            var flight = pm.response.json()[0];",
+									"            pm.expect(flight).to.have.property('number');",
+									"            pm.expect(flight).to.have.property('route_id');",
+									"        });",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "apikey",
+								"value": "{{internal_api_key}}",
+								"type": "text",
+								"description": "API Key pour l'authentification interne"
+							}
+						],
+						"url": {
+							"raw": "http://{{internal_host}}/flights",
+							"protocol": "http",
+							"host": [
+								"{{internal_host}}"
+							],
+							"path": [
+								"flights"
+							]
+						},
+						"description": "Test du endpoint flights via la route interne (Key Auth requis)"
+					},
+					"response": []
+				}
+			],
+			"description": "Routes internes protégées par Key Auth + Rate Limiting.\n\n**Configuration requise:**\n- API Key valide dans l'en-tête `apikey`\n\n**Note:** Pour obtenir une API Key:\n1. Créez un Consumer dans Kong\n2. Créez une API Key pour ce Consumer\n3. Utilisez cette clé dans la variable `internal_api_key`"
+		}
+	],
+	"variable": [
+		{
+			"key": "external_host",
+			"value": "external.localhost:8000",
+			"type": "string"
+		},
+		{
+			"key": "internal_host",
+			"value": "internal.localhost:8000",
+			"type": "string"
+		},
+		{
+			"key": "internal_api_key",
+			"value": "YOUR_API_KEY_HERE",
+			"type": "string"
+		},
+		{
+			"key": "oidc_token",
+			"value": "YOUR_OIDC_TOKEN_HERE",
+			"type": "string"
+		}
+	]
+}
+
