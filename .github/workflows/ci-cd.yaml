@@ -67,6 +67,8 @@ jobs:
             --output-file .generated/kong.yaml
 
       - name: Split Horizon (Internal / External routes)
+        env:
+          REPO_NAME: ${{ github.event.repository.name }}
         run: |
           CONFIG_FILE="config/vars/${ENVIRONMENT}-envs.json"
 
