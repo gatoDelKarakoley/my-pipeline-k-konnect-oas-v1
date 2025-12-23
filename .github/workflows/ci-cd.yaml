@@ -6,13 +6,13 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Target environment'
+        description: Target environment
         required: true
-        default: 'dev'
+        default: dev
         type: choice
         options: [dev, uat, stg, prod]
       deploy:
-        description: 'Deploy to Kong Konnect'
+        description: Deploy to Kong Konnect
         required: false
         type: boolean
         default: true
@@ -21,16 +21,23 @@ permissions:
   contents: read
 
 jobs:
+# --------------------------------------------------
+# LINT
+# --------------------------------------------------
   lint:
     name: Lint OpenAPI Specification
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: stoplightio/spectral-action@v0.8.10
         with:
           file_glob: spec/openapi.yaml
           spectral_ruleset: spectral.yaml
 
+# --------------------------------------------------
+# BUILD
+# --------------------------------------------------
   build:
     name: Build Kong Configuration
     needs: lint
@@ -38,15 +45,14 @@ jobs:
     env:
       ENVIRONMENT: ${{ inputs.environment || 'dev' }}
       MANAGED_TAG: cicd
-    outputs:
-      artifact-name: kong-config
+
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup decK
         uses: kong/setup-deck@v1
         with:
-          deck-version: '1.55.0'  # Version actuelle stable
+          deck-version: '1.55.0'
 
       - name: Setup yq
         run: |
@@ -59,115 +65,76 @@ jobs:
           deck file openapi2kong \
             --spec spec/openapi.yaml \
             --output-file .generated/kong.yaml
-          
-          echo "🔎 DEBUG: Generated Config Content:"
-          cat .generated/kong.yaml
 
-      - name: SPLIT-HORIZON - Generate Internal & External Routes
-        env:
-          REPO_NAME: ${{ github.event.repository.name }}
+      - name: Split Horizon (Internal / External routes)
         run: |
           CONFIG_FILE="config/vars/${ENVIRONMENT}-envs.json"
 
           if [ ! -f "$CONFIG_FILE" ]; then
-            echo "::error::Missing environment config: $CONFIG_FILE"
+            echo "::error::Missing env config $CONFIG_FILE"
             exit 1
           fi
 
-          echo "Applying Split-Horizon Architecture..."
-          
-          # Prepare config file for merging
-          # Substitute environment variables (like ${REPO_NAME}) in the config file
-          envsubst < "$CONFIG_FILE" > .generated/envs_resolved.json
+          envsubst < "$CONFIG_FILE" > .generated/envs.json
 
-          # Use yq to transform the single route into two (Internal/External)
           yq eval-all '
-            (select(fileIndex == 0).services[0] | .name) as $svcName |
-            (select(fileIndex == 1)) as $envConfig |
-            
+            (select(fileIndex == 0).services[0] | .name) as $svc |
+            (select(fileIndex == 1)) as $env |
+
             select(fileIndex == 0) |
-            
-            .services[0] *= $envConfig |
 
-            (.services[0].routes[0]) as $baseRoute |
-            
-            ($baseRoute | 
-             del(.id) |
-             .name = $svcName + "-external" | 
-             .hosts = [$envConfig.route_external] |
-             .tags = ["external", "cicd"]
-            ) as $extRoute |
+            (.services[0].routes[0]) as $r |
 
-            ($baseRoute | 
-             del(.id) |
-             .name = $svcName + "-internal" | 
-             .hosts = [$envConfig.route_internal] |
-             .tags = ["internal", "cicd"]
-            ) as $intRoute |
+            .services[0].routes = [
+              ($r | del(.id) | .name = $svc + "-external" | .hosts = [$env.route_external] | .tags = ["external","cicd"]),
+              ($r | del(.id) | .name = $svc + "-internal" | .hosts = [$env.route_internal] | .tags = ["internal","cicd"])
+            ]
+          ' .generated/kong.yaml .generated/envs.json > .generated/kong.tmp.yaml
 
-            .services[0].routes = [$extRoute, $intRoute] |
+          mv .generated/kong.tmp.yaml .generated/kong.yaml
 
-            del(.services[0].route_external) |
-            del(.services[0].route_internal) |
-            del(.services[0].enabled)
-
-          ' .generated/kong.yaml .generated/envs_resolved.json > .generated/kong_split.yaml
-
-          mv .generated/kong_split.yaml .generated/kong.yaml
-
-      - name: Apply Security Profiles (Internal vs External)
+      - name: Apply security plugins
         run: |
-          # Apply External Plugins (mTLS + OIDC) to routes tagged "external"
-          TEMPLATE_EXT="config/templates/mtls-oidc.yaml"
-          # Apply Internal Plugins (Rate Limit + Key Auth) to routes tagged "internal"
-          TEMPLATE_INT="config/templates/internal.yaml"
-
-          echo "Injecting External Plugins..."
           yq eval-all '
-            (select(fileIndex == 1).plugins) as $plugins |
+            (select(fileIndex == 1).plugins) as $p |
             select(fileIndex == 0) |
-            .services[0].routes[] |= select(.tags[] == "external").plugins += $plugins
-          ' .generated/kong.yaml "$TEMPLATE_EXT" > .generated/kong_ext.yaml
-          
-          echo "Injecting Internal Plugins..."
+            .services[0].routes[] |=
+              select(.tags[] == "external").plugins += $p
+          ' .generated/kong.yaml config/templates/mtls-oidc.yaml > .generated/kong.ext.yaml
+
           yq eval-all '
-            (select(fileIndex == 1).plugins) as $plugins |
+            (select(fileIndex == 1).plugins) as $p |
             select(fileIndex == 0) |
-            .services[0].routes[] |= select(.tags[] == "internal").plugins += $plugins
-          ' .generated/kong_ext.yaml "$TEMPLATE_INT" > .generated/kong_final.yaml
+            .services[0].routes[] |=
+              select(.tags[] == "internal").plugins += $p
+          ' .generated/kong.ext.yaml config/templates/internal.yaml > .generated/kong.final.yaml
 
-          mv .generated/kong_final.yaml .generated/kong.yaml
+          mv .generated/kong.final.yaml .generated/kong.yaml
 
-      # 🔐 TAG EVERYTHING MANAGED BY THIS PIPELINE
       - name: Tag managed resources
         run: |
-          yq eval '
-            .services[].tags += ["'${MANAGED_TAG}'"] |
-            .services[].tags |= unique
-          ' -i .generated/kong.yaml
-          
-          echo "🔎 DEBUG: Final Generated Config:"
-          cat .generated/kong.yaml
+          yq eval '.services[].tags += ["cicd"] | .services[].tags |= unique' -i .generated/kong.yaml
 
-      - name: Upload Kong configuration artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: kong-config
           path: .generated/kong.yaml
 
+# --------------------------------------------------
+# DEPLOY
+# --------------------------------------------------
   deploy:
     name: Deploy to Kong Konnect
     needs: build
-    runs-on: self-hosted
-    environment: 
-      name: ${{ inputs.environment || 'dev' }}
-      url: ${{ env.KONNECT_ADDR }}
+    runs-on: ubuntu-latest
     if: ${{ github.event_name == 'push' || inputs.deploy == true }}
+
     env:
+      ENVIRONMENT: ${{ inputs.environment || 'dev' }}
       KONNECT_TOKEN: ${{ secrets.KONNECT_PAT }}
       KONNECT_ADDR: ${{ vars.CP_URL }}
       MANAGED_TAG: cicd
-      ENVIRONMENT: ${{ inputs.environment || 'dev' }}
       CP_DEV: ${{ vars.CP_DEV }}
       CP_UAT: ${{ vars.CP_UAT }}
       CP_STG: ${{ vars.CP_STG }}
@@ -175,70 +142,51 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           name: kong-config
           path: .generated
 
-      - name: Validate local decK installation
+      - name: Setup decK
+        uses: kong/setup-deck@v1
+        with:
+          deck-version: '1.55.0'
+
+      - name: Resolve Control Plane & URL
         run: |
-          echo "/opt/homebrew/bin" >> $GITHUB_PATH
-          export PATH="/opt/homebrew/bin:$PATH"
-          if ! command -v deck &> /dev/null; then
-            echo "::error::decK not found. Install manually."
-            exit 1
-          fi
-          deck version
+          case "$ENVIRONMENT" in
+            prod) CP="$CP_PRD" ;;
+            stg)  CP="$CP_STG" ;;
+            uat)  CP="$CP_UAT" ;;
+            *)    CP="$CP_DEV" ;;
+          esac
 
-      - name: Load Environment Configuration
-        id: config
-        run: |
-          CONFIG_FILE="config/vars/${ENVIRONMENT}-envs.json"
-          if [ "$ENVIRONMENT" == "prod" ]; then
-            echo "KONNECT_CP_NAME=$CP_PRD" >> $GITHUB_ENV
-            SELECTED_CP="$CP_PRD"
-          elif [ "$ENVIRONMENT" == "stg" ]; then
-            echo "KONNECT_CP_NAME=$CP_STG" >> $GITHUB_ENV
-            SELECTED_CP="$CP_STG"
-          elif [ "$ENVIRONMENT" == "uat" ]; then
-            echo "KONNECT_CP_NAME=$CP_UAT" >> $GITHUB_ENV
-            SELECTED_CP="$CP_UAT"
-          else
-            echo "KONNECT_CP_NAME=$CP_DEV" >> $GITHUB_ENV
-            SELECTED_CP="$CP_DEV"
-          fi
+          HOST=$(jq -r '.route_external' config/vars/${ENVIRONMENT}-envs.json)
+          PROTOCOL="https"
+          [[ "$HOST" == *localhost* ]] && PROTOCOL="http"
 
-          if [ -f "$CONFIG_FILE" ]; then
-            HOST=$(jq -r '.route_external' "$CONFIG_FILE")
-            PROTOCOL=$(jq -r '.protocol // "https"' "$CONFIG_FILE")
-            if [[ "$HOST" == *"localhost"* ]]; then
-              PROTOCOL="http"
-            fi
-            echo "PROXY_URL=${PROTOCOL}://${HOST}" >> $GITHUB_ENV
-            echo "Targeting CP: $SELECTED_CP ($PROTOCOL://${HOST})"
-          else
-            echo "::error::Config file not found: $CONFIG_FILE"
-            exit 1
-          fi
+          echo "KONNECT_CP_NAME=$CP" >> $GITHUB_ENV
+          echo "PROXY_URL=$PROTOCOL://$HOST" >> $GITHUB_ENV
 
-      - name: Check connectivity
+      - name: Connectivity check
         run: |
           deck gateway ping \
             --konnect-token "$KONNECT_TOKEN" \
             --konnect-addr "$KONNECT_ADDR" \
             --konnect-control-plane-name "$KONNECT_CP_NAME"
 
-      - name: Backup current configuration
+      - name: Backup current config
         run: |
           deck gateway dump \
             --konnect-token "$KONNECT_TOKEN" \
             --konnect-addr "$KONNECT_ADDR" \
             --konnect-control-plane-name "$KONNECT_CP_NAME" \
             --select-tag "$MANAGED_TAG" \
-            --output-file backup.yaml || echo "No existing config"
+            --output-file backup.yaml || true
 
-      - name: Deploy configuration (scoped & safe)
-        id: deploy_step
+      - name: Deploy
+        id: deploy
         run: |
           deck gateway sync .generated/kong.yaml \
             --konnect-token "$KONNECT_TOKEN" \
@@ -246,35 +194,23 @@ jobs:
             --konnect-control-plane-name "$KONNECT_CP_NAME" \
             --select-tag "$MANAGED_TAG"
 
-      - name: Run Postman Tests
-        id: postman_tests
+      - name: Run Postman tests
         run: |
-          echo "⏳ Waiting 15s for Kong to stabilize..."
           sleep 15
-          COLLECTION_FILE="tests/${GITHUB_REPOSITORY##*/}-integration-tests-${ENVIRONMENT}.json"
-          if [ ! -f "$COLLECTION_FILE" ]; then
-            echo "Specific collection $COLLECTION_FILE not found, using default tests/integration-tests.json"
-            COLLECTION_FILE="tests/integration-tests.json"
-          fi
-          
-          # Use npx to run newman without global install/sudo
-          npx newman run "$COLLECTION_FILE" \
+          COLLECTION="tests/${GITHUB_REPOSITORY##*/}-integration-tests-${ENVIRONMENT}.json"
+          [ -f "$COLLECTION" ] || COLLECTION="tests/integration-tests.json"
+
+          npx newman run "$COLLECTION" \
             --env-var baseUrl="$PROXY_URL" \
-            --reporters cli \
             --timeout-request 10000 \
             --timeout 60000
 
-      - name: Rollback deployment
-        if: failure() && steps.deploy_step.outcome == 'success'
+      - name: Rollback on failure
+        if: failure() && steps.deploy.outcome == 'success'
         run: |
-          echo "🚨 Postman tests failed! Rolling back..."
-          if [ -f "backup.yaml" ] && [ -s "backup.yaml" ]; then
-            deck gateway sync backup.yaml \
-              --konnect-token "$KONNECT_TOKEN" \
-              --konnect-addr "$KONNECT_ADDR" \
-              --konnect-control-plane-name "$KONNECT_CP_NAME" \
-              --select-tag "$MANAGED_TAG"
-            echo "✅ Rollback completed."
-          else
-            echo "⚠️ No backup found, cannot rollback."
-          fi
+          [ -s backup.yaml ] || exit 0
+          deck gateway sync backup.yaml \
+            --konnect-token "$KONNECT_TOKEN" \
+            --konnect-addr "$KONNECT_ADDR" \
+            --konnect-control-plane-name "$KONNECT_CP_NAME" \
+            --select-tag "$MANAGED_TAG"
