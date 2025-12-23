@@ -78,17 +78,25 @@ jobs:
           envsubst < "$CONFIG_FILE" > .generated/envs.json
 
           yq eval-all '
-            (select(fileIndex == 0).services[0] | .name) as $svc |
+            (select(fileIndex == 0).services[0] | .name) as $svcName |
             (select(fileIndex == 1)) as $env |
-
+            
             select(fileIndex == 0) |
+            
+            .services[0] *= $env |
 
-            (.services[0].routes[0]) as $r |
+            .services[0].routes |= map(
+              . as $r |
+              [
+                ($r | del(.id) | .name = .name + "-external" | .hosts = [$env.route_external] | .tags = ["external","cicd"]),
+                ($r | del(.id) | .name = .name + "-internal" | .hosts = [$env.route_internal] | .tags = ["internal","cicd"])
+              ]
+            ) |
+            .services[0].routes |= flatten |
 
-            .services[0].routes = [
-              ($r | del(.id) | .name = $svc + "-external" | .hosts = [$env.route_external] | .tags = ["external","cicd"]),
-              ($r | del(.id) | .name = $svc + "-internal" | .hosts = [$env.route_internal] | .tags = ["internal","cicd"])
-            ]
+            del(.services[0].route_external) |
+            del(.services[0].route_internal) |
+            del(.services[0].enabled)
           ' .generated/kong.yaml .generated/envs.json > .generated/kong.tmp.yaml
 
           mv .generated/kong.tmp.yaml .generated/kong.yaml
@@ -169,22 +177,6 @@ jobs:
           echo "KONNECT_CP_NAME=$CP" >> $GITHUB_ENV
           echo "PROXY_URL=$PROTOCOL://$HOST" >> $GITHUB_ENV
 
-      - name: Connectivity check
-        run: |
-          deck gateway ping \
-            --konnect-token "$KONNECT_TOKEN" \
-            --konnect-addr "$KONNECT_ADDR" \
-            --konnect-control-plane-name "$KONNECT_CP_NAME"
-
-      - name: Backup current config
-        run: |
-          deck gateway dump \
-            --konnect-token "$KONNECT_TOKEN" \
-            --konnect-addr "$KONNECT_ADDR" \
-            --konnect-control-plane-name "$KONNECT_CP_NAME" \
-            --select-tag "$MANAGED_TAG" \
-            --output-file backup.yaml || true
-
       - name: Deploy
         id: deploy
         run: |
@@ -193,24 +185,6 @@ jobs:
             --konnect-addr "$KONNECT_ADDR" \
             --konnect-control-plane-name "$KONNECT_CP_NAME" \
             --select-tag "$MANAGED_TAG"
-
-      # - name: Run Postman tests
-      #   run: |
-      #     sleep 15
-      #     COLLECTION="tests/${GITHUB_REPOSITORY##*/}-integration-tests-${ENVIRONMENT}.json"
-      #     [ -f "$COLLECTION" ] || COLLECTION="tests/integration-tests.json"
-
-      #     npx newman run "$COLLECTION" \
-      #       --env-var baseUrl="$PROXY_URL" \
-      #       --timeout-request 10000 \
-      #       --timeout 60000
-
-      # - name: Rollback on failure
-      #   if: failure() && steps.deploy.outcome == 'success'
-      #   run: |
-      #     [ -s backup.yaml ] || exit 0
-      #     deck gateway sync backup.yaml \
-      #       --konnect-token "$KONNECT_TOKEN" \
-      #       --konnect-addr "$KONNECT_ADDR" \
-      #       --konnect-control-plane-name "$KONNECT_CP_NAME" \
-      #       --select-tag "$MANAGED_TAG"
+            
+      - name: ⚠️ Notice
+        run: echo "Deployment only mode. No connectivity checks or tests ran (Cloud Runner)."
