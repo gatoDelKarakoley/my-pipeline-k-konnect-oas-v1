@@ -109,16 +109,16 @@ jobs:
           yq eval-all '
             (select(fileIndex == 1).plugins) as $p |
             select(fileIndex == 0) |
-            .services[0].routes |= map(
-              if (.tags | contains(["external"])) then .plugins += $p else . end
+            .services[0].routes[] |= (
+              (select(.tags | contains(["external"])) | .plugins += $p) // .
             )
           ' .generated/kong.yaml config/templates/mtls-oidc.yaml > .generated/kong.ext.yaml
 
           yq eval-all '
             (select(fileIndex == 1).plugins) as $p |
             select(fileIndex == 0) |
-            .services[0].routes |= map(
-              if (.tags | contains(["internal"])) then .plugins += $p else . end
+            .services[0].routes[] |= (
+              (select(.tags | contains(["internal"])) | .plugins += $p) // .
             )
           ' .generated/kong.ext.yaml config/templates/internal.yaml > .generated/kong.final.yaml
 
