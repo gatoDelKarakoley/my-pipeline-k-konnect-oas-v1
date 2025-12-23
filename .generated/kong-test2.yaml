@@ -1,0 +1,37 @@
+_format_version: "3.0"
+services:
+  - {"host": "api.kong-air.com", id: c151b058-867a-587a-af4e-6160485ffe82, "name": "my-pipeline-k-konnect-oas-v1", "path": "/", plugins: [], "port": 443, "protocol": "https", routes: [{methods: [GET], name: kongair-flights-api_getflights-external-internal-external, paths: [~/flights$], plugins: [{name: key-auth, config: {key_names: [apikey]}}, {name: rate-limiting, config: {minute: 100, policy: local}}], regex_priority: 200, strip_path: false, tags: [external, cicd]}, {methods: [GET], name: kongair-flights-api_gethealth-external-internal-external, paths: [~/health$], plugins: [{name: key-auth, config: {key_names: [apikey]}}, {name: rate-limiting, config: {minute: 100, policy: local}}], regex_priority: 200, strip_path: false, tags: [external, cicd]}], tags: [cicd], "tls_verify": false, "connect_timeout": 5000, "read_timeout": 10000, "write_timeout": 60000, "retries": 3}
+upstreams: []
+ca_certificates:
+  - id: "a1b2c3d4-e5f6-7890-1234-567890abcdef"
+    cert: |
+      -----BEGIN CERTIFICATE-----
+      MIIFIzCCAwugAwIBAgIUFTKJ+0Zedo0trDW9nqlNganNfPYwDQYJKoZIhvcNAQEL
+      BQAwITEfMB0GA1UEAwwWS29uZ0FpciBTZWxmIFNpZ25lZCBDQTAeFw0yNTEyMjEy
+      MjMyMzlaFw0yNjEyMjEyMjMyMzlaMCExHzAdBgNVBAMMFktvbmdBaXIgU2VsZiBT
+      aWduZWQgQ0EwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQCUfaYt2DvZ
+      jBbuAaN/aRoHqhbNQ+oxu13raaPGDn/N+WrEvd1Z6SoDFsYdnNbpjMmK+Zt9VXNd
+      4W69G/9PnEDnXHrE2PQLajNCk0KPMFbl18PfbqQnStSyc7KuzfWRkoGxtDUpliuc
+      097QXWO6zlGOiksjhFj4d7nDkanBM1cZuAp/O52AwdsLuHyRijbojzaG1rdfDFs7
+      3RPDT4y/Efn3w8daZrQgWSYALsfgA/YIUEbtmVc+wY3L0sxivV63SDgVlc1w0ErX
+      GSFf2vrZgj0RIayKqtGXvx9uxhmdmDnNlG8hCqo4r4qG+sHP3yZLyTVAqZtAZkR0
+      d+iF1qZnKaYbW8P32cH8In8vvsv4oWbEu7gHlt+SCl80zbdVQIWHiX+Hf3Q/94tD
+      ldQDLpDfL9Z0V2e3+PbYeBPHiNIxfLbYW6LHzVtruaXaoTCAPdtLWpuORIzE95ez
+      33eWyn927ho2Uaio2Mi7i24YKva5w55ZbW9q76dtbBwrKOSafET1qyyWcj255PWZ
+      SrGIL+1ZDS0x18WkbMMZx7YiYb1IXtNqmsFtnGsuzD7SnvBL4HF8WUhA4bKx+Pqo
+      u9H+Pl87zMu7/oQzSmN9XZLPOOIelXsptxzLquYaiTzwzncfUL9HoS1lhpUItA3z
+      c2wYKWqAEFBlQNyq59vz7lCt0Jhr1baKqwIDAQABo1MwUTAdBgNVHQ4EFgQUYjPP
+      XOJW2lM41gdtIdZqhnXw9JIwHwYDVR0jBBgwFoAUYjPPXOJW2lM41gdtIdZqhnXw
+      9JIwDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAgEAVnKWW2BL2J5M
+      JAXBfpgrSCn7bdILfL5ivzGEAZotj6gSEKIKI1iLrgK1IQiOwlZlS/BFpvncR00y
+      PpCX++y2uVyyakZ8Q1odOthybAl3QBliIPWu9L7oGto0LI8lVsCEXCv/VwOwoNuX
+      MdyXTqrtAo283G46/XustFQgasdd2hhBkbyiQsGw5q24Lpmlf9cxwVFxzomfJ8F9
+      kepl7qTILtbAvwLRogwAXslY+O9DCZuIkv8tt2lxMKVG/jfqcKvHZAmD1hQ2sb0C
+      pGSohY/+rgzrXocDbwTK9dG1yO2An+sjHLn93UlkGoakBwAMNoylGs0TnQOC6JpY
+      MSjWoj6iNOiKVdZ73p4jaeovDaZevwQ6RM+ZJG7RLla7sMvfJ2L4gGMD/Jvebnqa
+      uQwTyc7xnGm1uL6C3dRZrZld2lg4p/9cOtHK+1SqjH4itwIogDkQeH3GpMMdl4B4
+      Q7s+Da2BmROtZA30+HOGxeUEm/x/UqmgYmYyOXYEjleFi6PvjDaAZLYMTVAO166W
+      MZbEY7mb//t7gKBpXcEyFdNzCm8l/2AXxZekLzMYmycAAignBt/qwrLrcRQUXUtA
+      VJhtz1ZwiNrmMj2eHMDd22ixpb/L5yjIOG+05d39LW3ZekP7zdBxCHK6EKKk6Hnw
+      H1AIbg6GVqgej+xKRzQXWGxvQaPnqOA=
+      -----END CERTIFICATE-----

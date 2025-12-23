@@ -1,0 +1,4 @@
+_format_version: "3.0"
+services:
+  - {"host": "api.kong-air.com", id: c151b058-867a-587a-af4e-6160485ffe82, "name": "my-pipeline-k-konnect-oas-v1", "path": "/", plugins: [], "port": 443, "protocol": "https", routes: [{methods: [GET], name: kongair-flights-api_getflights-internal, paths: [~/flights$], plugins: [], regex_priority: 200, strip_path: false, tags: [internal, cicd]}, {methods: [GET], name: kongair-flights-api_gethealth-internal, paths: [~/health$], plugins: [], regex_priority: 200, strip_path: false, tags: [internal, cicd]}], tags: [], "tls_verify": false, "connect_timeout": 5000, "read_timeout": 10000, "write_timeout": 60000, "retries": 3}
+upstreams: []

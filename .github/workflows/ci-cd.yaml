@@ -87,49 +87,73 @@ jobs:
           yq eval '.services[0].routes[].name' .generated/kong.yaml || echo "No routes found"
 
           # Split each route into external and internal variants
+          # Create external routes
           yq eval-all '
-            (select(fileIndex == 0).services[0] | .name) as $svcName |
+            (select(fileIndex == 1).route_external) as $extHost |
             (select(fileIndex == 1)) as $env |
-            
             select(fileIndex == 0) |
-            
-            # Merge environment config into service
             .services[0] *= $env |
-
-            # For each route, create external and internal variants
-            .services[0].routes |= map(
+            .services[0].routes = [
+              .services[0].routes[] | 
               . as $r |
-              (.name) as $rname |
-              [
-                ($r | del(.id) | .name = $rname + "-external" | .hosts = [$env.route_external] | .tags = ["external","cicd"]),
-                ($r | del(.id) | .name = $rname + "-internal" | .hosts = [$env.route_internal] | .tags = ["internal","cicd"])
-              ]
-            ) |
-            .services[0].routes |= flatten |
-
-            # Clean up temporary fields
+              ($r | del(.id) | .name = $r.name + "-external" | .hosts = [$extHost] | .tags = ["external","cicd"])
+            ] |
             del(.services[0].route_external) |
             del(.services[0].route_internal) |
             del(.services[0].enabled)
-          ' .generated/kong.yaml .generated/envs.json > .generated/kong.tmp.yaml
+          ' .generated/kong.yaml .generated/envs.json > .generated/kong-ext.yaml
+
+          # Create internal routes
+          yq eval-all '
+            (select(fileIndex == 1).route_internal) as $intHost |
+            (select(fileIndex == 1)) as $env |
+            select(fileIndex == 0) |
+            .services[0] *= $env |
+            .services[0].routes = [
+              .services[0].routes[] | 
+              . as $r |
+              ($r | del(.id) | .name = $r.name + "-internal" | .hosts = [$intHost] | .tags = ["internal","cicd"])
+            ] |
+            del(.services[0].route_external) |
+            del(.services[0].route_internal) |
+            del(.services[0].enabled)
+          ' .generated/kong.yaml .generated/envs.json > .generated/kong-int.yaml
+
+          # Merge external and internal routes
+          yq eval-all '
+            (select(fileIndex == 0).services[0].routes) as $extRoutes |
+            (select(fileIndex == 1).services[0].routes) as $intRoutes |
+            select(fileIndex == 0) |
+            .services[0].routes = ($extRoutes + $intRoutes) |
+            .services[0] *= (select(fileIndex == 1).services[0] | del(.routes))
+          ' .generated/kong-ext.yaml .generated/kong-int.yaml > .generated/kong.tmp.yaml
 
           mv .generated/kong.tmp.yaml .generated/kong.yaml
           
           echo "=== Routes after split horizon ==="
-          yq eval '.services[0].routes[] | "\(.name) - tags: \(.tags | join(",")) - hosts: \(.hosts | join(","))"' .generated/kong.yaml
+          yq eval '.services[0].routes[] | .name + " - tags: " + (.tags | join(",")) + " - hosts: " + (.hosts | join(","))' .generated/kong.yaml
 
       - name: Apply security plugins (Public routes)
         run: |
           # Apply public template to external routes
           yq eval-all '
             (select(fileIndex == 1).plugins) as $p |
-            (select(fileIndex == 1).ca_certificates) as $certs |
             select(fileIndex == 0) |
             .services[0].routes[] |= (
               (select(.tags | contains(["external"])) | .plugins += $p) // .
-            ) |
-            (if $certs then .ca_certificates = $certs else . end)
-          ' .generated/kong.yaml config/templates/public.yaml > .generated/kong.ext.yaml
+            )
+          ' .generated/kong.yaml config/templates/public.yaml > .generated/kong.tmp.yaml
+          
+          # Merge CA certificates separately if they exist
+          if yq eval '.ca_certificates' config/templates/public.yaml > /dev/null 2>&1; then
+            yq eval-all '
+              (select(fileIndex == 1).ca_certificates) as $certs |
+              select(fileIndex == 0) |
+              .ca_certificates = $certs
+            ' .generated/kong.tmp.yaml config/templates/public.yaml > .generated/kong.ext.yaml
+          else
+            mv .generated/kong.tmp.yaml .generated/kong.ext.yaml
+          fi
 
       - name: Apply security plugins (Private routes)
         run: |
