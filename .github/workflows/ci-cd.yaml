@@ -110,14 +110,14 @@ jobs:
             (select(fileIndex == 1).plugins) as $p |
             select(fileIndex == 0) |
             .services[0].routes[] |=
-              select(.tags | contains(["external"])).plugins += $p
+              if (.tags | contains(["external"])) then .plugins += $p else . end
           ' .generated/kong.yaml config/templates/mtls-oidc.yaml > .generated/kong.ext.yaml
 
           yq eval-all '
             (select(fileIndex == 1).plugins) as $p |
             select(fileIndex == 0) |
             .services[0].routes[] |=
-              select(.tags | contains(["internal"])).plugins += $p
+              if (.tags | contains(["internal"])) then .plugins += $p else . end
           ' .generated/kong.ext.yaml config/templates/internal.yaml > .generated/kong.final.yaml
 
           mv .generated/kong.final.yaml .generated/kong.yaml
