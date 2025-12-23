@@ -1,7 +1,7 @@
 {
     "host": "api.kong-air.com",
-    "route_external": "localhost:8000",
-    "route_internal": "localhost:8001",
+    "route_external": "external.localhost:8000",
+    "route_internal": "internal.localhost:8000",
     "port": 443,
     "protocol": "https",
     "tls_verify": false,
