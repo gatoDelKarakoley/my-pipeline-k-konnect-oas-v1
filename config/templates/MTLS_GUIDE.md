@@ -16,7 +16,7 @@ openssl req -new -x509 -days 365 -key ca.key -out ca.crt -subj "/CN=KongAir Cust
 ```
 
 ### Intégration dans le Template
-Copiez le contenu complet de `ca.crt` (y compris les lignes `BEGIN` et `END`) dans le fichier `config/templates/mtls-oidc.yaml` :
+Copiez le contenu complet de `ca.crt` (y compris les lignes `BEGIN` et `END`) dans le fichier `config/templates/public.yaml` :
 - Section: `ca_certificates` -> `cert`
 
 ## 2. Émettre un Certificat Client

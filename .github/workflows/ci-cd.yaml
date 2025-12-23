@@ -77,16 +77,26 @@ jobs:
             exit 1
           fi
 
+          # Substitute environment variables in config
           envsubst < "$CONFIG_FILE" > .generated/envs.json
+          
+          echo "=== Environment config ==="
+          cat .generated/envs.json
+          
+          echo "=== Initial routes from OpenAPI ==="
+          yq eval '.services[0].routes[].name' .generated/kong.yaml || echo "No routes found"
 
+          # Split each route into external and internal variants
           yq eval-all '
             (select(fileIndex == 0).services[0] | .name) as $svcName |
             (select(fileIndex == 1)) as $env |
             
             select(fileIndex == 0) |
             
+            # Merge environment config into service
             .services[0] *= $env |
 
+            # For each route, create external and internal variants
             .services[0].routes |= map(
               . as $r |
               (.name) as $rname |
@@ -97,32 +107,59 @@ jobs:
             ) |
             .services[0].routes |= flatten |
 
+            # Clean up temporary fields
             del(.services[0].route_external) |
             del(.services[0].route_internal) |
             del(.services[0].enabled)
           ' .generated/kong.yaml .generated/envs.json > .generated/kong.tmp.yaml
 
           mv .generated/kong.tmp.yaml .generated/kong.yaml
+          
+          echo "=== Routes after split horizon ==="
+          yq eval '.services[0].routes[] | "\(.name) - tags: \(.tags | join(",")) - hosts: \(.hosts | join(","))"' .generated/kong.yaml
 
-      - name: Apply security plugins
+      - name: Apply security plugins (Public routes)
         run: |
+          # Apply public template to external routes
           yq eval-all '
             (select(fileIndex == 1).plugins) as $p |
+            (select(fileIndex == 1).ca_certificates) as $certs |
             select(fileIndex == 0) |
             .services[0].routes[] |= (
               (select(.tags | contains(["external"])) | .plugins += $p) // .
-            )
-          ' .generated/kong.yaml config/templates/mtls-oidc.yaml > .generated/kong.ext.yaml
+            ) |
+            (if $certs then .ca_certificates = $certs else . end)
+          ' .generated/kong.yaml config/templates/public.yaml > .generated/kong.ext.yaml
 
+      - name: Apply security plugins (Private routes)
+        run: |
+          # Apply private template to internal routes
           yq eval-all '
             (select(fileIndex == 1).plugins) as $p |
             select(fileIndex == 0) |
             .services[0].routes[] |= (
               (select(.tags | contains(["internal"])) | .plugins += $p) // .
             )
-          ' .generated/kong.ext.yaml config/templates/internal.yaml > .generated/kong.final.yaml
+          ' .generated/kong.ext.yaml config/templates/private.yaml > .generated/kong.final.yaml
 
           mv .generated/kong.final.yaml .generated/kong.yaml
+
+      - name: Verify routes generation
+        run: |
+          echo "=== Verifying generated routes ==="
+          EXTERNAL_COUNT=$(yq eval '.services[0].routes[] | select(.tags | contains(["external"])) | .name' .generated/kong.yaml | wc -l)
+          INTERNAL_COUNT=$(yq eval '.services[0].routes[] | select(.tags | contains(["internal"])) | .name' .generated/kong.yaml | wc -l)
+          echo "External routes: $EXTERNAL_COUNT"
+          echo "Internal routes: $INTERNAL_COUNT"
+          echo "Total routes: $((EXTERNAL_COUNT + INTERNAL_COUNT))"
+          
+          if [ "$EXTERNAL_COUNT" -eq 0 ] || [ "$INTERNAL_COUNT" -eq 0 ]; then
+            echo "::error::Missing routes! Expected both external and internal routes."
+            exit 1
+          fi
+          
+          echo "=== Route names ==="
+          yq eval '.services[0].routes[].name' .generated/kong.yaml
 
       - name: Tag managed resources
         run: |

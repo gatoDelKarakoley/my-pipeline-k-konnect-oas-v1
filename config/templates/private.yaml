@@ -1,6 +1,6 @@
 _format_version: "3.0"
 _plugin_configs: {}
-# Template for Internal APIs (Key Auth + Rate Limiting)
+# Template for Private/Internal APIs (Key Auth + Rate Limiting)
 plugins:
   - name: key-auth
     config:
@@ -10,3 +10,4 @@ plugins:
     config:
       minute: 100
       policy: local
+

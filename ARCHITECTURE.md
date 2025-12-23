@@ -7,9 +7,15 @@ It allows a single API Service to be exposed differently for **Internal** and **
 
 ### Concept: Split-Horizon
 Instead of duplicating Services, we define the API **once** (OpenAPI Spec).
-The CI/CD pipeline automatically generates **two Routes** for each Service:
-1.  **External Route**: Public-facing, secured with **mTLS + OIDC**.
-2.  **Internal Route**: Private-facing, secured with **Key Auth + Rate Limiting**.
+The CI/CD pipeline automatically generates **two Routes** for each API endpoint:
+1.  **Public Route** (tag: `external`): Public-facing, secured with **mTLS + OIDC** (template: `public.yaml`).
+2.  **Private Route** (tag: `internal`): Private-facing, secured with **Key Auth + Rate Limiting** (template: `private.yaml`).
+
+**Example**: For an API with 2 endpoints (`/flights` and `/health`), the pipeline generates **4 routes**:
+- `getflights-external` (public)
+- `getflights-internal` (private)
+- `gethealth-external` (public)
+- `gethealth-internal` (private)
 
 ### 🌍 Deployment Topology (8 Data Planes)
 To ensure isolation, we define **1 Data Plane per Control Plane per Scope**.
@@ -27,6 +33,8 @@ Total: **8 Data Planes** running locally via Docker.
 |               | **Internal** | `8007`    | `8450`     | `internal`  |
 
 ## ⚙️ Configuration
+
+### Environment Variables
 Environment variables in `config/vars/*.json` control the routing:
 
 ```json
@@ -38,6 +46,20 @@ Environment variables in `config/vars/*.json` control the routing:
 }
 ```
 
+### Security Templates
+The pipeline uses two security templates located in `config/templates/`:
+
+1. **`public.yaml`**: For public/external routes
+   - **mTLS Authentication**: Requires client certificates signed by the configured CA
+   - **OIDC Authentication**: OpenID Connect integration (Okta in this example)
+   - **CA Certificates**: Self-signed CA certificate for mTLS validation
+
+2. **`private.yaml`**: For private/internal routes
+   - **Key Authentication**: API key-based authentication (`apikey` header)
+   - **Rate Limiting**: 100 requests per minute (local policy)
+
+These templates are automatically applied during the build phase based on route tags.
+
 ## 🚀 CI/CD Pipeline (GitHub Actions)
 
 The `.github/workflows/ci-cd.yaml` pipeline automates this logic:
@@ -46,8 +68,12 @@ The `.github/workflows/ci-cd.yaml` pipeline automates this logic:
 2.  **Build (Split-Horizon)**:
     *   Reads `openapi.yaml`.
     *   Reads `config/vars/{env}-envs.json`.
-    *   **Generates** `my-api-external` (Host: `route_external`, Plugins: `mtls-oidc`).
-    *   **Generates** `my-api-internal` (Host: `route_internal`, Plugins: `internal`).
+    *   For each endpoint in the OpenAPI spec:
+      *   **Generates** `{endpoint}-external` (Host: `route_external`, Tags: `["external","cicd"]`, Plugins from `public.yaml`).
+      *   **Generates** `{endpoint}-internal` (Host: `route_internal`, Tags: `["internal","cicd"]`, Plugins from `private.yaml`).
+    *   Applies security plugins from templates:
+      *   **Public routes**: mTLS + OIDC authentication (`config/templates/public.yaml`).
+      *   **Private routes**: Key Auth + Rate Limiting (`config/templates/private.yaml`).
 3.  **Deploy**: Syncs this configuration to Kong Konnect.
 4.  **Test**: Runs Postman collection against `route_external`.
 

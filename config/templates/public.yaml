@@ -1,6 +1,6 @@
 _format_version: "3.0"
 _plugin_configs: {}
-# Template for High Security (mTLS + OIDC)
+# Template for Public/External APIs (mTLS + OIDC)
 plugins:
   - name: mtls-auth
     config:
@@ -46,3 +46,4 @@ ca_certificates:
       VJhtz1ZwiNrmMj2eHMDd22ixpb/L5yjIOG+05d39LW3ZekP7zdBxCHK6EKKk6Hnw
       H1AIbg6GVqgej+xKRzQXWGxvQaPnqOA=
       -----END CERTIFICATE-----
+
