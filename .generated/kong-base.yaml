@@ -1,0 +1,32 @@
+_format_version: "3.0"
+services:
+- host: localhost
+  id: c151b058-867a-587a-af4e-6160485ffe82
+  name: kongair-flights-api
+  path: /
+  plugins: []
+  port: 8000
+  protocol: http
+  routes:
+  - id: 505f265e-d273-5cdc-b7c1-d83e3f022a1c
+    methods:
+    - GET
+    name: kongair-flights-api_getflights
+    paths:
+    - ~/flights$
+    plugins: []
+    regex_priority: 200
+    strip_path: false
+    tags: []
+  - id: 33872598-7143-5624-9b11-2029e6a8cae3
+    methods:
+    - GET
+    name: kongair-flights-api_gethealth
+    paths:
+    - ~/health$
+    plugins: []
+    regex_priority: 200
+    strip_path: false
+    tags: []
+  tags: []
+upstreams: []

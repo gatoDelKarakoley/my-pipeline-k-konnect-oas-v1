@@ -76,7 +76,7 @@ yq eval-all '
   .services[0].routes = [
     .services[0].routes[] | 
     . as $r |
-    ($r | del(.id) | .name = $r.name + "-external" | .hosts = [$extHost] | .tags = ["external","cicd"])
+    ($r | del(.id) | .name = $r.name + "-external" | .tags = ["external","cicd"] | .hosts = [$extHost])
   ] |
   del(.services[0].route_external) |
   del(.services[0].route_internal) |
@@ -92,7 +92,7 @@ yq eval-all '
   .services[0].routes = [
     .services[0].routes[] | 
     . as $r |
-    ($r | del(.id) | .name = $r.name + "-internal" | .hosts = [$intHost] | .tags = ["internal","cicd"])
+    ($r | del(.id) | .name = $r.name + "-internal" | .tags = ["internal","cicd"] | .hosts = [$intHost])
   ] |
   del(.services[0].route_external) |
   del(.services[0].route_internal) |
@@ -108,7 +108,18 @@ yq eval-all '
   .services[0] *= (select(fileIndex == 1).services[0] | del(.routes))
 ' .generated/kong-ext.yaml .generated/kong-int.yaml > .generated/kong.tmp.yaml
 
-mv .generated/kong.tmp.yaml .generated/kong.yaml
+# Add hosts to routes (post-processing)
+export REPO_NAME
+envsubst < "$CONFIG_FILE" > .generated/envs-final.json
+yq eval-all '
+  (select(fileIndex == 1).route_external) as $extHost |
+  (select(fileIndex == 1).route_internal) as $intHost |
+  select(fileIndex == 0) |
+  .services[0].routes[] |= (
+    (select(.tags | contains(["external"])) | .hosts = [$extHost]) // . |
+    (select(.tags | contains(["internal"])) | .hosts = [$intHost]) // .
+  )
+' .generated/kong.tmp.yaml .generated/envs-final.json > .generated/kong.yaml
 
 echo "=== Routes after split horizon ==="
 yq eval '.services[0].routes[] | .name + " - tags: " + (.tags | join(",")) + " - hosts: " + (.hosts | join(","))' .generated/kong.yaml
