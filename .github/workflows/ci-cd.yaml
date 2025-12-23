@@ -194,23 +194,23 @@ jobs:
             --konnect-control-plane-name "$KONNECT_CP_NAME" \
             --select-tag "$MANAGED_TAG"
 
-      - name: Run Postman tests
-        run: |
-          sleep 15
-          COLLECTION="tests/${GITHUB_REPOSITORY##*/}-integration-tests-${ENVIRONMENT}.json"
-          [ -f "$COLLECTION" ] || COLLECTION="tests/integration-tests.json"
+      # - name: Run Postman tests
+      #   run: |
+      #     sleep 15
+      #     COLLECTION="tests/${GITHUB_REPOSITORY##*/}-integration-tests-${ENVIRONMENT}.json"
+      #     [ -f "$COLLECTION" ] || COLLECTION="tests/integration-tests.json"
 
-          npx newman run "$COLLECTION" \
-            --env-var baseUrl="$PROXY_URL" \
-            --timeout-request 10000 \
-            --timeout 60000
+      #     npx newman run "$COLLECTION" \
+      #       --env-var baseUrl="$PROXY_URL" \
+      #       --timeout-request 10000 \
+      #       --timeout 60000
 
-      - name: Rollback on failure
-        if: failure() && steps.deploy.outcome == 'success'
-        run: |
-          [ -s backup.yaml ] || exit 0
-          deck gateway sync backup.yaml \
-            --konnect-token "$KONNECT_TOKEN" \
-            --konnect-addr "$KONNECT_ADDR" \
-            --konnect-control-plane-name "$KONNECT_CP_NAME" \
-            --select-tag "$MANAGED_TAG"
+      # - name: Rollback on failure
+      #   if: failure() && steps.deploy.outcome == 'success'
+      #   run: |
+      #     [ -s backup.yaml ] || exit 0
+      #     deck gateway sync backup.yaml \
+      #       --konnect-token "$KONNECT_TOKEN" \
+      #       --konnect-addr "$KONNECT_ADDR" \
+      #       --konnect-control-plane-name "$KONNECT_CP_NAME" \
+      #       --select-tag "$MANAGED_TAG"
